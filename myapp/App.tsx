@@ -27,6 +27,8 @@ import NewAddress from './src/screens/NewAddress';
 import Introduce from './src/screens/Introduce';
 import Record from './src/screens/Record';
 import JoinWash from './src/screens/JoinWash';
+import AllStore from './src/screens/AllStore';
+import Login from './src/screens/Login';
 
 // Import tab icons
 import { HomeIcon, CartIcon, OrdersIcon, ProfileIcon } from './src/components/TabIcons';
@@ -42,6 +44,7 @@ function TabNavigator() {
       screenOptions={{
         tabBarActiveTintColor: '#FF6347',
         tabBarInactiveTintColor: '#AAAAAA',
+        headerShown: false,
         tabBarStyle: {
           height: 50,
           paddingBottom: 10,
@@ -198,7 +201,22 @@ function App() {
               headerShown: true,
             }}
           />
-          
+          <Stack.Screen
+            name="AllStore"
+            component={AllStore}
+            options={{
+              title: '区域切换',
+              headerShown: true,
+            }}
+          />
+          <Stack.Screen
+            name="Login"
+            component={Login}
+            options={{
+              title: '登录',
+            
+            }}
+          />
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>

@@ -1,8 +1,9 @@
 import React from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
+import { useNavigation } from '@react-navigation/native';
 export default function UserData() {
+  const navigation = useNavigation();
   // 用户信息数据
   const userInfo = [
     { label: '用户昵称', value: '王淼' },
@@ -12,7 +13,7 @@ export default function UserData() {
 
   const handleLogout = () => {
     // 处理退出登录逻辑
-    console.log('退出登录');
+    navigation.navigate('Login');
   };
 
   return (
