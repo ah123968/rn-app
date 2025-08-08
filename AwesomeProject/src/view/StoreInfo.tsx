@@ -6,7 +6,8 @@ import {
   ScrollView,
   ActivityIndicator,
   TouchableOpacity,
-  Image
+  Image,
+  Alert
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -56,25 +57,32 @@ const StoreInfo: React.FC<Props> = ({ navigation }) => {
         setAdminInfo(adminData);
 
         // 获取认证Token
-        const token = await AsyncStorage.getItem('storeToken');
+        const token = await AsyncStorage.getItem('storeAdminToken');
+        console.log('StoreInfo: 读取到token:', token ? '有效' : '无效');
+        
         if (!token) {
+          console.log('StoreInfo: 未找到token，重定向到登录页');
           navigation.replace('StoreLogin');
           return;
         }
 
         // 从后端获取店铺信息
         try {
+          console.log('StoreInfo: 正在请求店铺信息...');
+          
           const response = await fetch(`${API_BASE_URL}/api/store-admin/info`, {
             method: 'GET',
             headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json'
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
             }
           });
 
           const result = await response.json();
+          console.log('StoreInfo: API响应:', JSON.stringify(result));
           
           if (response.ok && result.code === 0) {
+            console.log('StoreInfo: 成功获取店铺信息');
             // 转换API返回数据为组件状态格式
             setStoreInfo({
               id: result.data.store.id,
@@ -83,11 +91,12 @@ const StoreInfo: React.FC<Props> = ({ navigation }) => {
               phone: result.data.store.phone,
               businessHours: result.data.store.businessHours,
               services: result.data.store.services || ['干洗', '水洗', '熨烫'],
-              introduction: "专业洗衣服务，品质保证。",
+              introduction: result.data.store.introduction || "专业洗衣服务，品质保证。",
               status: 'open',
               images: result.data.store.images || []
             });
           } else {
+            console.log('StoreInfo: API请求失败，使用本地数据', result.message);
             // API请求失败，使用管理员信息中的店铺信息作为后备
             setStoreInfo({
               id: adminData.storeId,
@@ -103,7 +112,7 @@ const StoreInfo: React.FC<Props> = ({ navigation }) => {
             setError('获取店铺详情失败，显示基本信息');
           }
         } catch (fetchError) {
-          console.error('获取店铺信息失败:', fetchError);
+          console.error('StoreInfo: 获取店铺信息失败:', fetchError);
           
           // API请求失败，使用本地存储的信息
           setStoreInfo({
@@ -120,8 +129,9 @@ const StoreInfo: React.FC<Props> = ({ navigation }) => {
           setError('无法连接服务器，显示本地信息');
         }
       } catch (error) {
-        console.error('加载店铺信息失败:', error);
-        setError('加载店铺信息失败');
+        console.error('加载商店信息失败:', error);
+        setError('加载商店信息失败');
+        Alert.alert('错误', '加载商店信息失败: ' + (error instanceof Error ? error.message : String(error)));
       } finally {
         setLoading(false);
       }

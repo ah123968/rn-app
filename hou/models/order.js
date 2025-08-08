@@ -54,7 +54,21 @@ const orderSchema = new Schema({
   items: [orderItemSchema],
   status: {
     type: String,
-    enum: ['pending', 'paid', 'processing', 'ready', 'completed', 'cancelled'],
+    enum: [
+      'pending',       // 待支付
+      'paid',          // 已支付
+      'toPickup',      // 待取件(店家需上门取衣或等待客户送来)
+      'pickedUp',      // 已取件(已收到衣物)
+      'sorting',       // 分拣中
+      'washing',       // 洗涤中
+      'drying',        // 烘干中
+      'ironing',       // 熨烫中
+      'packaging',     // 包装中
+      'ready',         // 准备好(待客户取件)
+      'delivering',    // 配送中
+      'completed',     // 已完成
+      'cancelled'      // 已取消
+    ],
     default: 'pending'
   },
   paymentMethod: {
@@ -87,6 +101,27 @@ const orderSchema = new Schema({
   remark: String,
   estimateCompleteTime: Date,
   completedTime: Date,
+  // 新增字段 - 状态历史记录
+  statusHistory: [{
+    status: String,
+    timestamp: Date,
+    operator: {
+      type: Schema.Types.ObjectId,
+      ref: 'StoreAdmin'
+    },
+    remark: String
+  }],
+  // 新增字段 - 洗涤处理状态
+  processingStatus: {
+    type: String,
+    enum: ['sorting', 'washing', 'drying', 'ironing', 'packaging', ''],
+    default: ''
+  },
+  processingTime: Date,
+  // 新增字段 - 配送相关
+  deliveryStartTime: Date,
+  deliveryCompletedTime: Date,
+  // 原有字段
   cancelReason: String,
   usedCoupon: {
     type: Schema.Types.ObjectId,

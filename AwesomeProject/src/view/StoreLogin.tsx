@@ -60,7 +60,7 @@ const StoreLogin: React.FC<Props> = ({ navigation }) => {
 
       if (response.ok) {
         // 登录成功，保存token和商家信息
-        await AsyncStorage.setItem('storeToken', data.data.token);
+        await AsyncStorage.setItem('storeAdminToken', data.data.token);
         await AsyncStorage.setItem('storeAdminInfo', JSON.stringify({
           adminId: data.data.adminId,
           name: data.data.name,
@@ -68,6 +68,9 @@ const StoreLogin: React.FC<Props> = ({ navigation }) => {
           storeId: data.data.store.id,
           storeName: data.data.store.name
         }));
+
+        console.log('Token已存储:', data.data.token);
+        console.log('商家信息已存储');
 
         // 导航到商家首页
         navigation.replace('StoreDashboard');
@@ -104,7 +107,7 @@ const StoreLogin: React.FC<Props> = ({ navigation }) => {
       };
       
       // 保存数据到AsyncStorage
-      await AsyncStorage.setItem('storeToken', mockLoginData.token);
+      await AsyncStorage.setItem('storeAdminToken', mockLoginData.token);
       await AsyncStorage.setItem('storeAdminInfo', JSON.stringify({
         adminId: mockLoginData.adminId,
         name: mockLoginData.name,
@@ -112,6 +115,9 @@ const StoreLogin: React.FC<Props> = ({ navigation }) => {
         storeId: mockLoginData.store.id,
         storeName: mockLoginData.store.name
       }));
+
+      console.log('模拟Token已存储:', mockLoginData.token);
+      console.log('模拟商家信息已存储');
 
       // 导航到商家首页
       navigation.replace('StoreDashboard');
@@ -173,7 +179,7 @@ const StoreLogin: React.FC<Props> = ({ navigation }) => {
         </TouchableOpacity>
 
         <Text style={styles.testAccountText}>
-          测试账号: admin / 密码: admin123
+          测试账号: shop3 / 密码: 123456
         </Text>
 
         <TouchableOpacity 
