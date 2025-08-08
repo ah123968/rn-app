@@ -9,9 +9,11 @@ import {
   ActivityIndicator,
   SafeAreaView,
   Dimensions,
+
   Alert,
   ToastAndroid,
   Platform
+
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -21,7 +23,7 @@ import { useCart } from '../utils/CartContext';
 
 // 后端API基础URL - 使用您实际的服务器IP或域名
 // Android模拟器访问宿主机
-const API_BASE_URL = 'http://192.168.26.1:3000/api'; 
+const API_BASE_URL = 'http://192.168.43.191:3000/api'; 
 // iOS模拟器访问宿主机
 // const API_BASE_URL = 'http://127.0.0.1:3000/api'; 
 // 真机访问 - 需要替换为您电脑的实际局域网IP

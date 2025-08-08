@@ -1,5 +1,8 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, Dimensions } from 'react-native';
+import React, { useEffect, useState, useCallback, memo } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, Dimensions, FlatList } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { get } from '../utils/request';
 
 const TABS = [
   { key: 'pending', label: '待支付' },
@@ -9,134 +12,267 @@ const TABS = [
   { key: 'all', label: '全部订单' },
 ];
 
-// mock订单数据
-const ORDERS = [
-  {
-    id: '1',
-    status: 'pending',
-    title: '洗护订单',
-    subtitle: '上门取送',
-    quantity: 3,
-    price: 55,
-    tag: '等待付款',
-    tagColor: '#409EFF',
-    actions: ['取消订单', '订单详情', '立即付款'],
-  },
-  {
-    id: '2',
-    status: 'toServe',
-    title: '洗护订单',
-    subtitle: '上门取送',
-    quantity: 3,
-    price: 55,
-    tag: '等待取件',
-    tagColor: '#409EFF',
-    actions: ['取消订单', '订单详情', '预约变更'],
-  },
-  {
-    id: '3',
-    status: 'toServe',
-    title: '洗护订单',
-    subtitle: '自主到店',
-    quantity: 3,
-    price: 55,
-    tag: '等待到店',
-    tagColor: '#409EFF',
-    actions: ['取消订单', '订单详情', '预约变更'],
-  },
-  {
-    id: '4',
-    status: 'serving',
-    title: '洗护订单',
-    subtitle: '上门取送',
-    quantity: 3,
-    price: 55,
-    tag: '订单洗护',
-    tagColor: '#409EFF',
-    actions: ['订单详情'],
-  },
-  {
-    id: '5',
-    status: 'serving',
-    title: '洗护订单',
-    subtitle: '自主到店',
-    quantity: 3,
-    price: 55,
-    tag: '订单洗护',
-    tagColor: '#409EFF',
-    extra: '返洗数量*1',
-    actions: ['订单详情'],
-  },
-  {
-    id: '6',
-    status: 'toSign',
-    title: '洗护订单',
-    subtitle: '上门取送',
-    quantity: 3,
-    price: 55,
-    tag: '已挂白牌',
-    tagColor: '#409EFF',
-    actions: ['订单详情', '取件码'],
-    actionColor: '#13CE66',
-  },
-  {
-    id: '7',
-    status: 'toSign',
-    title: '洗护订单',
-    subtitle: '自主到店',
-    quantity: 3,
-    price: 55,
-    tag: '已挂白牌',
-    tagColor: '#409EFF',
-    extra: '返洗数量*1',
-    actions: ['订单详情', '取件码'],
-    actionColor: '#13CE66',
-  },
-  {
-    id: '8',
-    status: 'finished',
-    title: '洗护订单',
-    subtitle: '上门取送',
-    quantity: 3,
-    price: 55,
-    tag: '完成取件',
-    tagColor: '#409EFF',
-    extra: '返洗数量*1',
-    actions: ['订单详情', '开发票'],
-    actionColor: '#E6A23C',
-  },
-];
+// 后端数据类型与UI类型
+type BackendOrder = {
+  orderId: string;
+  orderNo: string;
+  storeName: string;
+  status: 'pending' | 'paid' | 'processing' | 'ready' | 'completed' | 'cancelled';
+  totalPrice: number;
+  createTime: string;
+  items: { name: string; quantity: number }[];
+};
+
+export type UIOrder = {
+  id: string;
+  status: 'pending' | 'toServe' | 'serving' | 'toSign' | 'finished' | 'cancelled';
+  title: string;
+  subtitle: string;
+  quantity: number;
+  price: number;
+  tag: string;
+  tagColor: string;
+  actions: string[];
+  actionColor?: string;
+  extra?: string;
+};
+
+// 单个订单卡片（memo）
+const OrderCard = memo(function OrderCard({
+  order,
+  activeTab,
+  onCancel,
+  onDetail,
+}: {
+  order: UIOrder;
+  activeTab: string;
+  onCancel: (id: string) => void;
+  onDetail: (id: string) => void;
+}) {
+  return (
+    <View style={styles.card}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+        <Text style={styles.cardTitle}>{order.title}</Text>
+        <View style={[styles.tag, { borderColor: order.tagColor }]}> 
+          <Text style={{ color: order.tagColor, fontSize: 13 }}>{order.tag}</Text>
+        </View>
+      </View>
+      <Text style={styles.cardSubtitle}>{order.subtitle}</Text>
+      <Text style={styles.cardSubtitle}>
+        商品数量*{order.quantity}
+        {order.extra ? ` | ${order.extra}` : ''}
+      </Text>
+      <View style={styles.divider} />
+      <View style={styles.feeRow}>
+        <Text style={styles.priceLabel}>
+          {activeTab === 'pending' ? '待付费用：' : '实付费用：'}
+          <Text style={styles.price}>￥{order.price.toFixed(2)}</Text>
+        </Text>
+      </View>
+      <View style={styles.actionsRowAlone}>
+        {order.actions.map((action, idx) => {
+          if (action === '取消订单') {
+            return (
+              <TouchableOpacity
+                key={`${order.id}-cancel`}
+                style={[
+                  styles.actionBtn,
+                  idx === order.actions.length - 1 && {
+                    backgroundColor: order.actionColor || '#E6A23C',
+                    borderWidth: 0,
+                  },
+                ]}
+                onPress={() => onCancel(order.id)}
+              >
+                <Text
+                  style={[
+                    styles.actionText,
+                    idx === order.actions.length - 1 && { color: '#fff' },
+                    idx === order.actions.length - 1 && order.actionColor ? { backgroundColor: 'transparent' } : {},
+                  ]}
+                >
+                  {action}
+                </Text>
+              </TouchableOpacity>
+            );
+          }
+          return (
+            <TouchableOpacity
+              key={`${order.id}-${action}`}
+              style={[
+                styles.actionBtn,
+                idx === order.actions.length - 1 && {
+                  backgroundColor: order.actionColor || '#E6A23C',
+                  borderWidth: 0,
+                },
+              ]}
+              onPress={() => {
+                if (action === '订单详情') onDetail(order.id);
+              }}
+            >
+              <Text
+                style={[
+                  styles.actionText,
+                  idx === order.actions.length - 1 && { color: '#fff' },
+                  idx === order.actions.length - 1 && order.actionColor ? { backgroundColor: 'transparent' } : {},
+                ]}
+              >
+                {action}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
+  );
+});
 
 const OrdersScreen = () => {
   const [activeTab, setActiveTab] = useState('pending');
   const [showCancelModal, setShowCancelModal] = useState(false);
-  const [cancelOrderId, setCancelOrderId] = useState<string | null>(null);
+  const [_cancelOrderId, setCancelOrderId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [orders, setOrders] = useState<UIOrder[]>([]);
+  const navigation = useNavigation();
 
-  const handleCancelPress = (orderId: string) => {
+  const handleCancelPress = useCallback((orderId: string) => {
     setCancelOrderId(orderId);
     setShowCancelModal(true);
-  };
+  }, []);
 
-  const handleContinueCancel = () => {
-    // TODO: 这里可以调用取消订单的接口
+  const handleContinueCancel = useCallback(() => {
     setShowCancelModal(false);
     setCancelOrderId(null);
-    // 你可以在这里加上Toast或Alert提示
-  };
+  }, []);
 
-  const handleCloseModal = () => {
+  const handleCloseModal = useCallback(() => {
     setShowCancelModal(false);
     setCancelOrderId(null);
+  }, []);
+
+  const backendStatusForTab: Record<string, string | undefined> = {
+    pending: 'pending',
+    toServe: 'paid',
+    serving: 'processing',
+    toSign: 'ready',
+    all: undefined,
   };
 
-  const filterOrders = () => {
-    if (activeTab === 'all') return ORDERS;
-    if (activeTab === 'serving') return ORDERS.filter(o => o.status === 'serving');
-    if (activeTab === 'toServe') return ORDERS.filter(o => o.status === 'toServe');
-    if (activeTab === 'pending') return ORDERS.filter(o => o.status === 'pending');
-    if (activeTab === 'toSign') return ORDERS.filter(o => o.status === 'toSign');
-    return [];
+  const uiOrderFromBackend = (o: BackendOrder): UIOrder => {
+    const qty = o.items?.reduce((s, it) => s + (it.quantity || 0), 0) || 0;
+    const base = {
+      id: o.orderId,
+      title: '洗护订单',
+      subtitle: `门店：${o.storeName || '未知门店'}`,
+      quantity: qty,
+      price: o.totalPrice,
+      tagColor: '#409EFF',
+    } as Partial<UIOrder>;
+    switch (o.status) {
+      case 'pending':
+        return {
+          ...base,
+          status: 'pending',
+          tag: '等待付款',
+          actions: ['取消订单', '订单详情', '立即付款'],
+          actionColor: '#E6A23C',
+        } as UIOrder;
+      case 'paid':
+        return {
+          ...base,
+          status: 'toServe',
+          tag: '等待取件',
+          actions: ['取消订单', '订单详情', '预约变更'],
+        } as UIOrder;
+      case 'processing':
+        return {
+          ...base,
+          status: 'serving',
+          tag: '订单洗护',
+          actions: ['订单详情'],
+        } as UIOrder;
+      case 'ready':
+        return {
+          ...base,
+          status: 'toSign',
+          tag: '已挂白牌',
+          actions: ['订单详情', '取件码'],
+          actionColor: '#13CE66',
+        } as UIOrder;
+      case 'completed':
+        return {
+          ...base,
+          status: 'finished',
+          tag: '完成取件',
+          actions: ['订单详情', '开发票'],
+          actionColor: '#E6A23C',
+        } as UIOrder;
+      case 'cancelled':
+        return {
+          ...base,
+          status: 'cancelled',
+          tag: '已取消',
+          actions: ['订单详情'],
+        } as UIOrder;
+      default:
+        return {
+          ...base,
+          status: 'finished',
+          tag: '完成取件',
+          actions: ['订单详情'],
+        } as UIOrder;
+    }
   };
+
+  const fetchOrders = async () => {
+    try {
+      setLoading(true);
+      const tokenStr = await AsyncStorage.getItem('userToken');
+      const token = tokenStr ? JSON.parse(tokenStr).token : '';
+      const status = backendStatusForTab[activeTab];
+
+      const headers: any = {};
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+
+      const params = {
+        _t: Date.now(),
+        ...(status ? { status } : {}),
+      };
+
+      const resp = await get('/order/list', params, headers);
+      const res = resp.data;
+      if (res.code === 0 && res.data?.orders) {
+        const list: UIOrder[] = (res.data.orders as BackendOrder[]).map(uiOrderFromBackend);
+        setOrders(list);
+      } else {
+        setOrders([]);
+      }
+    } catch (e) {
+      console.error('获取订单列表失败:', e);
+      setOrders([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchOrders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  const onDetail = useCallback(
+    (id: string) => (navigation as any).navigate('Detail', { orderId: id }),
+    [navigation]
+  );
+
+  const renderItem = useCallback(
+    ({ item }: { item: UIOrder }) => (
+      <OrderCard order={item} activeTab={activeTab} onCancel={handleCancelPress} onDetail={onDetail} />
+    ),
+    [activeTab, handleCancelPress, onDetail]
+  );
 
   return (
     <View style={{ flex: 1, backgroundColor: '#f5f5f5' }}>
@@ -152,87 +288,22 @@ const OrdersScreen = () => {
           </TouchableOpacity>
         ))}
       </View>
+
       {/* 订单列表 */}
-      <ScrollView style={{ flex: 1 }}>
-        {filterOrders().map(order => (
-          <View key={order.id} style={styles.card}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-              <Text style={styles.cardTitle}>{order.title}</Text>
-              <View style={[styles.tag, { borderColor: order.tagColor }]}> 
-                <Text style={{ color: order.tagColor, fontSize: 13 }}>{order.tag}</Text>
-              </View>
-            </View>
-            <Text style={styles.cardSubtitle}>{order.subtitle}</Text>
-            <Text style={styles.cardSubtitle}>
-              商品数量*{order.quantity}
-              {order.extra ? ` | ${order.extra}` : ''}
-            </Text>
-            <View style={styles.divider} />
-            {/* 费用单独一行 */}
-            <View style={styles.feeRow}>
-              <Text style={styles.priceLabel}>
-                {activeTab === 'pending' ? '待付费用：' : '实付费用：'}
-                <Text style={styles.price}>￥{order.price.toFixed(2)}</Text>
-              </Text>
-            </View>
-            {/* 按钮组单独一行，横向排列 */}
-            <View style={styles.actionsRowAlone}>
-              {order.actions.map((action, idx) => {
-                if (activeTab === 'pending' && action === '取消订单') {
-                  return (
-                    <TouchableOpacity
-                      key={action}
-                      style={[
-                        styles.actionBtn,
-                        idx === order.actions.length - 1 && {
-                          backgroundColor: order.actionColor || '#E6A23C',
-                          borderWidth: 0,
-                        },
-                      ]}
-                      onPress={() => handleCancelPress(order.id)}
-                    >
-                      <Text
-                        style={[
-                          styles.actionText,
-                          idx === order.actions.length - 1 && { color: '#fff' },
-                          idx === order.actions.length - 1 && order.actionColor ? { backgroundColor: 'transparent' } : {},
-                        ]}
-                      >
-                        {action}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                }
-                return (
-                  <TouchableOpacity
-                    key={action}
-                    style={[
-                      styles.actionBtn,
-                      idx === order.actions.length - 1 && {
-                        backgroundColor: order.actionColor || '#E6A23C',
-                        borderWidth: 0,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.actionText,
-                        idx === order.actions.length - 1 && { color: '#fff' },
-                        idx === order.actions.length - 1 && order.actionColor ? { backgroundColor: 'transparent' } : {},
-                      ]}
-                    >
-                      {action}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          </View>
-        ))}
-        {filterOrders().length === 0 && (
+      <FlatList
+        data={orders}
+        keyExtractor={(item) => item.id}
+        renderItem={renderItem}
+        contentContainerStyle={{ paddingBottom: 12 }}
+        initialNumToRender={8}
+        maxToRenderPerBatch={8}
+        windowSize={7}
+        removeClippedSubviews
+        ListEmptyComponent={!loading ? (
           <Text style={{ textAlign: 'center', marginTop: 40, color: '#999' }}>暂无订单</Text>
-        )}
-      </ScrollView>
+        ) : null}
+      />
+
       {/* 取消订单弹窗 */}
       <Modal
         visible={showCancelModal}
@@ -242,8 +313,24 @@ const OrdersScreen = () => {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>取消确认</Text>
-            <Text style={styles.modalText}>确定取消当前订单吗？</Text>
+            {activeTab === 'pending' ? (
+              // 待支付页面：简单确认弹框
+              <>
+                <Text style={styles.modalTitle}>取消确认</Text>
+                <Text style={[styles.modalText, { marginBottom: 32 }]}>确定取消当前订单吗？</Text>
+              </>
+            ) : (
+              // 待服务页面：详细温馨提示弹框
+              <>
+                <Text style={styles.modalTitle}>温馨提示</Text>
+                <Text style={styles.modalText}>
+                  亲爱的用户，感谢您使用工匠熊洗护服务，您已使用上门取件服务，为保障服务人员的时间效益，如果在上门前120分钟内取消订单，可能扣除您订单金额一定数额用来弥补取件物流成本，请您谅解！
+                </Text>
+                <Text style={styles.modalSubTitle}>具体规则如下：</Text>
+                <Text style={styles.modalRule}>1、取件前120分钟之外取消，退还100%支付金额。</Text>
+                <Text style={styles.modalRule}>2、取件前0-120分钟内取消需扣除10元/次的取件费。</Text>
+              </>
+            )}
             <View style={styles.modalBtnRow}>
               <TouchableOpacity style={styles.modalBtn} onPress={handleContinueCancel}>
                 <Text style={styles.modalBtnText}>继续取消</Text>
@@ -329,18 +416,11 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 16,
   },
-  bottomRow: {
+  actionsRowAlone: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    flexWrap: 'nowrap',
-  },
-  actionsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'flex-end',
-    marginLeft: 10,
+    marginTop: 12,
   },
   actionBtn: {
     borderWidth: 1,
@@ -364,12 +444,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 0,
     marginTop: 0,
-  },
-  actionsRowAlone: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    marginTop: 12,
   },
   modalOverlay: {
     flex: 1,
@@ -397,7 +471,20 @@ const styles = StyleSheet.create({
   modalText: {
     fontSize: 16,
     color: '#222',
-    marginBottom: 32,
+    marginBottom: 16,
+    lineHeight: 22,
+  },
+  modalSubTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 8,
+    color: '#222',
+  },
+  modalRule: {
+    fontSize: 14,
+    color: '#333',
+    marginBottom: 4,
+    lineHeight: 20,
   },
   modalBtnRow: {
     flexDirection: 'row',

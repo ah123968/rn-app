@@ -38,12 +38,18 @@ const Router = () => {
     const checkStoreLoginStatus = async () => {
       try {
         // 检查商家登录状态
-        const storeToken = await AsyncStorage.getItem('storeToken');
-        setIsStoreLoggedIn(storeToken !== null);
+        const storeAdminToken = await AsyncStorage.getItem('storeAdminToken');
+        console.log('Router检查到token:', storeAdminToken ? '已登录' : '未登录');
+        
+        if (storeAdminToken) {
+          setIsStoreLoggedIn(true);
+        } else {
+          setIsStoreLoggedIn(false);
+        }
         
         setIsLoading(false);
       } catch (e) {
-        console.log('登录状态检查失败:', e);
+        console.error('登录状态检查失败:', e);
         setIsStoreLoggedIn(false);
         setIsLoading(false);
       }

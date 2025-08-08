@@ -316,24 +316,52 @@ const CartScreen = () => {
       <ScrollView style={styles.scrollView}>
         {/* 地址信息 */}
         <View style={styles.addressSection}>
-          {addressInfo.map(item => renderAddressItem(item))}
+          {addressInfo.map((item, index) => (
+            <React.Fragment key={`address-${item.type}-${index}`}>
+              {renderAddressItem(item)}
+            </React.Fragment>
+          ))}
         </View>
 
         {/* 服务分类 */}
         <View style={styles.categorySection}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {serviceCategories.map(renderServiceCategory)}
+            {serviceCategories.map((category, index) => (
+              <React.Fragment key={`category-${index}`}>
+                {renderServiceCategory(category, index)}
+              </React.Fragment>
+            ))}
           </ScrollView>
         </View>
 
         {/* 商品列表 - 按分类显示 */}
         <View style={styles.itemsSection}>
+
           {Object.entries(categorizedItems).map(([category, categoryItems]) => (
             <View key={category}>
               <Text style={styles.sectionTitle}>{category}</Text>
               {categoryItems.map(item => renderCartItem(item))}
             </View>
           ))}
+
+          <Text style={styles.sectionTitle}>皮鞋类</Text>
+          {items
+            .filter(item => item.category === '皮鞋类')
+            .map((item, index) => (
+              <React.Fragment key={`cart-item-${item.id}-${index}`}>
+                {renderCartItem({ item })}
+              </React.Fragment>
+            ))}
+
+          <Text style={styles.sectionTitle}>非皮鞋</Text>
+          {items
+            .filter(item => item.category === '非皮鞋')
+            .map((item, index) => (
+              <React.Fragment key={`cart-item-${item.id}-${index}`}>
+                {renderCartItem({ item })}
+              </React.Fragment>
+            ))}
+
         </View>
       </ScrollView>
 

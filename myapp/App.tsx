@@ -26,6 +26,7 @@ import VipUser from './src/screens/VipUser';
 import Coupon from './src/screens/Coupon';
 import BadPro  from './src/screens/BadPro';
 import Invoice from './src/screens/Invoice';
+import Detail from './src/screens/Detail';
 import Address from './src/screens/Address';
 import NewAddress from './src/screens/NewAddress';
 import Introduce from './src/screens/Introduce';
@@ -33,6 +34,7 @@ import Record from './src/screens/Record';
 import JoinWash from './src/screens/JoinWash';
 import AllStore from './src/screens/AllStore';
 import Login from './src/screens/Login';
+import SetInvoice from './src/screens/SetInvoice';
 
 // Import tab icons
 import { HomeIcon, CartIcon, OrdersIcon, ProfileIcon } from './src/components/TabIcons';
@@ -149,6 +151,7 @@ function App() {
 
   return (
     <SafeAreaProvider>
+
       <CartProvider>
         <NavigationContainer>
           <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
@@ -266,6 +269,138 @@ function App() {
           </Stack.Navigator>
         </NavigationContainer>
       </CartProvider>
+
+      <NavigationContainer>
+        <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
+        <Stack.Navigator
+          screenOptions={{
+            headerShown: false, // 隐藏 Stack Navigator 的默认标题栏
+          }}
+          initialRouteName={isAuthenticated ? "MainTabs" : "Login"}
+        >
+          <Stack.Screen 
+            name="MainTabs" 
+            component={TabNavigator}
+            options={{
+              title: '主页',
+            }}
+          />
+          {/* 这里可以添加其他需要嵌套的页面 */}
+          <Stack.Screen 
+            name="Detail" 
+            component={Detail}
+            options={{
+              headerShown: true,
+              title: '订单详情',
+            }}
+          />
+          <Stack.Screen 
+            name="VipUser" 
+            component={VipUser}
+            options={{
+              headerShown: true,
+              title: '会员卡包',
+            }}
+          />
+          <Stack.Screen
+            name="Coupon"
+            component={Coupon}
+            options={{
+              title: '优惠券',
+              headerShown: true,
+            }}
+          />
+          <Stack.Screen
+            name="BadPro"
+            component={BadPro}
+            options={{
+              title: '售后订单',
+              headerShown: true,
+            }}
+          />
+          <Stack.Screen
+            name="Invoice"
+            component={Invoice}
+            options={{
+              title: '开发票',
+              headerShown: true,
+            }}
+          />
+          <Stack.Screen
+            name="Address"
+            component={Address}
+            options={{
+              title: '地址管理',
+              headerShown: true,
+            }}
+          />
+          <Stack.Screen
+            name="NewAddress"
+            component={NewAddress}
+            options={{
+              title: '新增地址',
+              headerShown: true,
+            }}
+          />
+          <Stack.Screen
+            name="Introduce"
+            component={Introduce}
+            options={{
+              title: '关于熊洗洗',
+              headerShown: true,
+            }}
+          />
+          <Stack.Screen
+            name="JoinWash"
+            component={JoinWash}
+            options={{
+              title: '加盟洗店',
+              headerShown: true,
+            }}
+          />
+          <Stack.Screen
+            name="Record"
+            component={Record}
+            options={{
+              title: '订单记录',
+              headerShown: true,
+            }}
+          />
+          <Stack.Screen
+            name="AllStore"
+            component={AllStore}
+            options={{
+              title: '区域切换',
+              headerShown: true,
+            }}
+          />
+          <Stack.Screen
+            name="Login"
+            component={Login}
+            options={{
+              title: '登录',
+            
+            }}
+          />
+          <Stack.Screen
+            name="UserData"
+            component={UserData}
+            options={{
+              title: '用户信息',
+              headerShown: true,
+            }}
+          />
+          <Stack.Screen
+            name="SetInvoice"
+            component={SetInvoice}
+            options={{
+              title: '设置发票',
+              headerShown: true,
+            }}
+          />
+        </Stack.Navigator>
+      </NavigationContainer>
+
     </SafeAreaProvider>
   );
 }

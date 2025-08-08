@@ -20,87 +20,7 @@ router.get('/', async (req, res) => {
     // 获取所有活跃的服务类型
     const services = await Service.find(query);
     
-    if (services.length === 0) {
-      // 如果数据库中没有服务数据，返回默认数据
-      return res.json({
-        code: 0,
-        message: '获取成功',
-        data: {
-          services: [
-            {
-              id: '1001',
-              name: '干洗',
-              icon: 'https://example.com/icons/dry-cleaning.png',
-              categories: [
-                {
-                  id: '101',
-                  name: '上衣',
-                  items: [
-                    { id: '10101', name: '西装上衣', price: 35.00, unit: '件' },
-                    { id: '10102', name: '夹克', price: 30.00, unit: '件' },
-                    { id: '10103', name: '羽绒服', price: 50.00, unit: '件' }
-                  ]
-                },
-                {
-                  id: '102',
-                  name: '裤装',
-                  items: [
-                    { id: '10201', name: '西裤', price: 25.00, unit: '条' },
-                    { id: '10202', name: '牛仔裤', price: 28.00, unit: '条' }
-                  ]
-                }
-              ]
-            },
-            {
-              id: '1002',
-              name: '水洗',
-              icon: 'https://example.com/icons/water-washing.png',
-              categories: [
-                {
-                  id: '201',
-                  name: '家居服',
-                  items: [
-                    { id: '20101', name: 'T恤', price: 15.00, unit: '件' },
-                    { id: '20102', name: '睡衣', price: 20.00, unit: '套' }
-                  ]
-                },
-                {
-                  id: '202',
-                  name: '床品',
-                  items: [
-                    { id: '20201', name: '床单', price: 30.00, unit: '件' },
-                    { id: '20202', name: '被套', price: 45.00, unit: '件' }
-                  ]
-                }
-              ]
-            },
-            {
-              id: '1003',
-              name: '皮具护理',
-              icon: 'https://example.com/icons/leather-care.png',
-              categories: [
-                {
-                  id: '301',
-                  name: '皮包',
-                  items: [
-                    { id: '30101', name: '小型皮包', price: 150.00, unit: '个' },
-                    { id: '30102', name: '大型皮包', price: 300.00, unit: '个' }
-                  ]
-                },
-                {
-                  id: '302',
-                  name: '皮衣',
-                  items: [
-                    { id: '30201', name: '皮夹克', price: 350.00, unit: '件' },
-                    { id: '30202', name: '皮裤', price: 300.00, unit: '条' }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      });
-    }
+    
     
     res.json({
       code: 0,
@@ -148,6 +68,71 @@ router.get('/:id', async (req, res) => {
     res.status(500).json({
       code: -1,
       message: '获取服务详情失败',
+      data: null
+    });
+  }
+});
+
+/**
+ * @route POST /api/services
+ * @desc 创建新服务
+ */
+router.post('/', async (req, res) => {
+  try {
+    const { name, description, serviceType, price, isUrgentAvailable, urgentFee, urgentProcessingTime, isActive } = req.body;
+    
+    // 验证必填字段
+    if (!name || !description) {
+      return res.status(400).json({
+        code: -1,
+        message: '服务名称和描述不能为空',
+        data: null
+      });
+    }
+    
+    // 创建基本类别和项目
+    const categories = [];
+    if (serviceType === 'dry' || serviceType === 'wet') {
+      categories.push({
+        name: serviceType === 'dry' ? '基础干洗' : '基础水洗',
+        items: [
+          { name: '标准服务', price: price || 0, unit: '件' }
+        ]
+      });
+    } else {
+      categories.push({
+        name: '基础服务',
+        items: [
+          { name: '标准服务', price: price || 0, unit: '件' }
+        ]
+      });
+    }
+    
+    // 创建新服务
+    const newService = new Service({
+      name,
+      description,
+      icon: `https://example.com/icons/${serviceType || 'default'}.png`,
+      serviceType,
+      categories,
+      isUrgentAvailable: !!isUrgentAvailable,
+      urgentFee,
+      urgentProcessingTime,
+      isActive: isActive !== undefined ? isActive : true
+    });
+    
+    await newService.save();
+    
+    res.status(201).json({
+      code: 0,
+      message: '服务创建成功',
+      data: newService
+    });
+  } catch (error) {
+    console.error('创建服务失败:', error);
+    res.status(500).json({
+      code: -1,
+      message: '创建服务失败',
       data: null
     });
   }
@@ -250,6 +235,88 @@ router.post('/init', async (req, res) => {
     res.status(500).json({
       code: -1,
       message: '初始化服务数据失败',
+      data: null
+    });
+  }
+});
+
+/**
+ * @route PUT /api/services/:id
+ * @desc 更新服务信息
+ */
+router.put('/:id', async (req, res) => {
+  try {
+    const serviceId = req.params.id;
+    const updateData = req.body;
+    
+    // 查找并更新服务
+    const updatedService = await Service.findByIdAndUpdate(
+      serviceId,
+      { 
+        $set: {
+          name: updateData.name,
+          description: updateData.description,
+          icon: updateData.icon,
+          isActive: updateData.isActive !== undefined ? updateData.isActive : true,
+          // 其他字段根据需要更新
+          updatedAt: Date.now()
+        }
+      },
+      { new: true }
+    );
+    
+    if (!updatedService) {
+      return res.status(404).json({
+        code: -1,
+        message: '服务不存在',
+        data: null
+      });
+    }
+    
+    res.json({
+      code: 0,
+      message: '更新成功',
+      data: updatedService
+    });
+  } catch (error) {
+    console.error('更新服务失败:', error);
+    res.status(500).json({
+      code: -1,
+      message: '更新服务失败',
+      data: null
+    });
+  }
+});
+
+/**
+ * @route DELETE /api/services/:id
+ * @desc 删除服务
+ */
+router.delete('/:id', async (req, res) => {
+  try {
+    const serviceId = req.params.id;
+    
+    // 查找并删除服务
+    const deletedService = await Service.findByIdAndDelete(serviceId);
+    
+    if (!deletedService) {
+      return res.status(404).json({
+        code: -1,
+        message: '服务不存在',
+        data: null
+      });
+    }
+    
+    res.json({
+      code: 0,
+      message: '删除成功',
+      data: { id: serviceId }
+    });
+  } catch (error) {
+    console.error('删除服务失败:', error);
+    res.status(500).json({
+      code: -1,
+      message: '删除服务失败',
       data: null
     });
   }
