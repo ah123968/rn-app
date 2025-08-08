@@ -23,6 +23,7 @@ import VipUser from './src/screens/VipUser';
 import Coupon from './src/screens/Coupon';
 import BadPro  from './src/screens/BadPro';
 import Invoice from './src/screens/Invoice';
+import Detail from './src/screens/Detail';
 import Address from './src/screens/Address';
 import NewAddress from './src/screens/NewAddress';
 import Introduce from './src/screens/Introduce';
@@ -30,6 +31,7 @@ import Record from './src/screens/Record';
 import JoinWash from './src/screens/JoinWash';
 import AllStore from './src/screens/AllStore';
 import Login from './src/screens/Login';
+import SetInvoice from './src/screens/SetInvoice';
 
 // Import tab icons
 import { HomeIcon, CartIcon, OrdersIcon, ProfileIcon } from './src/components/TabIcons';
@@ -162,13 +164,12 @@ function App() {
             }}
           />
           {/* 这里可以添加其他需要嵌套的页面 */}
-        
           <Stack.Screen 
-            name="DetailScreen" 
-            component={UserData}
+            name="Detail" 
+            component={Detail}
             options={{
               headerShown: true,
-              title: '用户信息',
+              title: '订单详情',
             }}
           />
           <Stack.Screen 
@@ -257,6 +258,22 @@ function App() {
             options={{
               title: '登录',
             
+            }}
+          />
+          <Stack.Screen
+            name="UserData"
+            component={UserData}
+            options={{
+              title: '用户信息',
+              headerShown: true,
+            }}
+          />
+          <Stack.Screen
+            name="SetInvoice"
+            component={SetInvoice}
+            options={{
+              title: '设置发票',
+              headerShown: true,
             }}
           />
         </Stack.Navigator>

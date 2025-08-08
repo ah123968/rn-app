@@ -469,14 +469,18 @@ router.get('/list', auth, async (req, res) => {
     const pageNumber = parseInt(page);
     const limitNumber = parseInt(limit);
     
+   
+    
     // 构建查询条件
     const query = { user: req.user._id };
     if (status && ['pending', 'paid', 'processing', 'ready', 'completed', 'cancelled'].includes(status)) {
       query.status = status;
     }
     
+   
     // 获取订单总数
     const total = await Order.countDocuments(query);
+    
     
     // 查询订单列表
     const orders = await Order.find(query)
@@ -485,6 +489,7 @@ router.get('/list', auth, async (req, res) => {
       .limit(limitNumber)
       .populate('store', 'name address phone')
       .exec();
+    console.log('查询到的订单:', orders);
     
     // 格式化订单数据
     const formattedOrders = orders.map(order => ({
@@ -499,6 +504,8 @@ router.get('/list', auth, async (req, res) => {
         quantity: item.quantity
       }))
     }));
+    
+    console.log('格式化后的订单数据:', formattedOrders);
     
     res.json({
       code: 0,
@@ -532,7 +539,7 @@ router.get('/:id', auth, async (req, res) => {
     
     // 查询订单详情
     const order = await Order.findById(orderId)
-      .populate('store', 'name address phone businessHours')
+      .populate('store', 'name address phone')
       .populate('user', 'nickname phone')
       .populate('address')
       .exec();
