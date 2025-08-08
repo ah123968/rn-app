@@ -5,8 +5,9 @@
  * @format
  */
 
-import React from 'react';
-import { StatusBar, useColorScheme } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { StatusBar, useColorScheme, View, Text, ActivityIndicator } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -102,6 +103,46 @@ function TabNavigator() {
 
 function App() {
   const isDarkMode = useColorScheme() === 'dark';
+  const [isLoading, setIsLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  useEffect(() => {
+    checkAuthStatus();
+  }, []);
+
+  const checkAuthStatus = async () => {
+    try {
+      // 检查本地存储的token
+      const tokenString = await AsyncStorage.getItem('userToken');
+      if (tokenString) {
+        const tokenData = JSON.parse(tokenString);
+        if (tokenData.token) {
+          // token存在，用户已登录
+          setIsAuthenticated(true);
+        } else {
+          setIsAuthenticated(false);
+        }
+      } else {
+        setIsAuthenticated(false);
+      }
+    } catch (error) {
+      console.error('检查认证状态失败:', error);
+      setIsAuthenticated(false);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <SafeAreaProvider>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" color="#E6A23C" />
+          <Text style={{ marginTop: 10, color: '#666' }}>正在检查登录状态...</Text>
+        </View>
+      </SafeAreaProvider>
+    );
+  }
 
   return (
     <SafeAreaProvider>
@@ -111,6 +152,7 @@ function App() {
           screenOptions={{
             headerShown: false, // 隐藏 Stack Navigator 的默认标题栏
           }}
+          initialRouteName={isAuthenticated ? "MainTabs" : "Login"}
         >
           <Stack.Screen 
             name="MainTabs" 
