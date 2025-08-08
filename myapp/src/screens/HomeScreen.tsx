@@ -9,10 +9,15 @@ import {
   ActivityIndicator,
   SafeAreaView,
   Dimensions,
-  Alert
+  Alert,
+  ToastAndroid,
+  Platform
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+
+// 导入购物车上下文
+import { useCart } from '../utils/CartContext';
 
 // 后端API基础URL - 使用您实际的服务器IP或域名
 // Android模拟器访问宿主机
@@ -85,6 +90,9 @@ const HomeScreen = () => {
   // 当前选择的服务类别
   const [activeCategory, setActiveCategory] = useState<ServiceCategory | null>(null);
 
+  const { addItem, getTotalItems } = useCart(); // 使用购物车上下文
+  const [cartCount, setCartCount] = useState(0); // 跟踪购物车数量
+
   // 获取所有服务
   const fetchServices = async () => {
     try {
@@ -153,6 +161,11 @@ const HomeScreen = () => {
 
   // 根据服务名称返回对应图标
   const getServiceIcon = (name: string): string => {
+    // 如果已经是完整URL，直接返回
+    if (name && (name.startsWith('http://') || name.startsWith('https://'))) {
+      return name;
+    }
+
     switch (name) {
       case '干洗': return '👔';
       case '水洗': return '👕';
@@ -186,8 +199,26 @@ const HomeScreen = () => {
 
   // 处理添加到购物车
   const handleAddToCart = (item: ServiceItem) => {
-    // 导航到购物车页面
-    navigation.navigate('Cart', { item });
+    // 将商品添加到购物车上下文
+    addItem({
+      id: item.id || item._id || `${item.name}-${Date.now()}`,
+      name: item.name,
+      price: item.price,
+      unit: item.unit,
+      image: item.image || '',
+      category: activeCategory?.name || '默认分类',
+      description: item.description || '',
+    }, 1);
+    
+    // 显示添加成功提示
+    if (Platform.OS === 'android') {
+      ToastAndroid.show(`已添加${item.name}到购物车`, ToastAndroid.SHORT);
+    } else {
+      Alert.alert('添加成功', `已添加${item.name}到购物车`);
+    }
+    
+    // 更新购物车数量
+    setCartCount(getTotalItems());
   };
 
   // 重试连接
@@ -233,19 +264,47 @@ const HomeScreen = () => {
     return () => clearInterval(interval);
   }, []);
 
+  // 在组件加载和购物车状态变化时更新购物车数量
+  useEffect(() => {
+    setCartCount(getTotalItems());
+  }, [getTotalItems]);
+
   // 渲染服务类别图标
-  const renderServiceIcon = ({ item }: { item: Service }) => (
-    <TouchableOpacity 
-      style={[
-        styles.serviceIconContainer,
-        selectedServiceId === (item.id || item._id) && styles.selectedServiceIcon
-      ]}
-      onPress={() => handleServiceSelect(item)}
-    >
-      <Text style={styles.serviceIconText}>{item.icon}</Text>
-      <Text style={styles.serviceIconLabel}>{item.name}</Text>
-    </TouchableOpacity>
-  );
+  const renderServiceIcon = ({ item }: { item: Service }) => {
+    // 检查icon是否为URL
+    const isIconUrl = item.icon && (typeof item.icon === 'string') && 
+      (item.icon.startsWith('http://') || item.icon.startsWith('https://'));
+    
+    // 根据服务名称选择合适的emoji图标
+    let emojiIcon;
+    switch (item.name) {
+      case '干洗': emojiIcon = '👔'; break;
+      case '水洗': emojiIcon = '👕'; break;
+      case '皮具护理': emojiIcon = '👜'; break;
+      case '洗鞋': case '洗鞋修鞋': emojiIcon = '👟'; break;
+      case '窗帘清洗': case '家纺清洗': emojiIcon = '🧺'; break;
+      case '家电清洗': emojiIcon = '🔌'; break;
+      case '洗护上门': case '上门取送': emojiIcon = '🚚'; break;
+      case '团体洗护': emojiIcon = '👥'; break;
+      case '熨烫服务': emojiIcon = '🔥'; break;
+      case '奢侈品护理': emojiIcon = '✨'; break;
+      default: emojiIcon = '🧼'; break;
+    }
+    
+    return (
+      <TouchableOpacity 
+        style={[
+          styles.serviceIconContainer,
+          selectedServiceId === (item.id || item._id) && styles.selectedServiceIcon
+        ]}
+        onPress={() => handleServiceSelect(item)}
+      >
+        {/* 无论是URL还是emoji，都使用emoji显示 */}
+        <Text style={styles.serviceIconText}>{emojiIcon}</Text>
+        <Text style={styles.serviceIconLabel}>{item.name}</Text>
+      </TouchableOpacity>
+    );
+  };
 
   // 渲染服务类别标签
   const renderCategoryTab = ({ item }: { item: ServiceCategory }) => (
@@ -329,6 +388,19 @@ const HomeScreen = () => {
         {/* 头部横幅 */}
         <View style={styles.headerBanner}>
           <Text style={styles.headerTitle}>健康洗衣 品质生活</Text>
+          
+          {/* 购物车计数显示 */}
+          {cartCount > 0 && (
+            <TouchableOpacity 
+              style={styles.cartBadge}
+              onPress={() => navigation.navigate('Cart')}
+            >
+              <Text style={styles.cartIcon}>🛒</Text>
+              <View style={styles.badgeContainer}>
+                <Text style={styles.badgeText}>{cartCount}</Text>
+              </View>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* 服务图标网格 */}
@@ -468,6 +540,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#1E90FF',
     padding: 15,
     alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    position: 'relative',
   },
   headerTitle: {
     fontSize: 18,
@@ -613,6 +688,39 @@ const styles = StyleSheet.create({
   footerButtonText: {
     color: '#555',
     fontSize: 14,
+  },
+  iconPlaceholder: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 5,
+    fontSize: 24,
+  },
+  cartBadge: {
+    position: 'absolute',
+    right: 15,
+    top: 15,
+  },
+  cartIcon: {
+    fontSize: 24,
+    color: 'white',
+  },
+  badgeContainer: {
+    position: 'absolute',
+    right: -6,
+    top: -6,
+    backgroundColor: 'red',
+    borderRadius: 10,
+    width: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  badgeText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
 });
 
