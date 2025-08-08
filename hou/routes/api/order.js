@@ -5,6 +5,7 @@ const User = require('../../models/user');
 const Store = require('../../models/store');
 const Service = require('../../models/service');
 const { auth } = require('../../middleware/auth');
+const bcrypt = require('bcryptjs'); // Added for quick-test endpoint
 
 /**
  * @route POST /api/order/calc
@@ -874,6 +875,158 @@ router.post('/create-test', async (req, res) => {
     res.status(500).json({
       code: -1,
       message: '创建测试订单失败',
+      data: null
+    });
+  }
+});
+
+/**
+ * @route POST /api/order/quick-test
+ * @desc 快速生成10条测试订单（直接使用简化逻辑）
+ */
+router.post('/quick-test', async (req, res) => {
+  try {
+    // 1. 获取第一个商店和第一个管理员
+    const store = await Store.findOne({});
+    if (!store) {
+      return res.status(404).json({
+        code: -1,
+        message: '没有找到商店',
+        data: null
+      });
+    }
+
+    // 2. 查找或创建测试用户
+    let user = await User.findOne({ username: 'testuser' });
+    
+    if (!user) {
+      // 创建测试用户
+      user = new User({
+        username: 'testuser',
+        email: 'test@example.com',
+        password: await bcrypt.hash('123456', 10),
+        phone: '13800138000',
+        nickname: '测试用户',
+        address: [{
+          name: '北京市朝阳区',
+          phone: '13800138000',
+          address: '北京市朝阳区三里屯1号',
+          isDefault: true
+        }]
+      });
+      
+      await user.save();
+    }
+    
+    // 3. 查找服务
+    const services = await Service.find({}).limit(3);
+    if (services.length === 0) {
+      // 如果没有服务，创建一个默认服务
+      const defaultService = new Service({
+        name: '标准洗衣',
+        description: '日常衣物洗涤服务',
+        price: 30,
+        store: store._id
+      });
+      
+      await defaultService.save();
+      services.push(defaultService);
+    }
+    
+    // 4. 批量创建10条测试订单
+    const statusList = ['pending', 'paid', 'toPickup', 'pickedUp', 'washing', 'drying', 'ready', 'completed'];
+    const orders = [];
+    
+    for (let i = 0; i < 10; i++) {
+      // 随机选择一个状态
+      const status = statusList[Math.floor(Math.random() * statusList.length)];
+      
+      // 随机创建1-3个订单项
+      const items = [];
+      const itemCount = Math.floor(Math.random() * 3) + 1;
+      let subTotal = 0;
+      
+      for (let j = 0; j < itemCount; j++) {
+        const service = services[Math.floor(Math.random() * services.length)];
+        const price = service.price || 30;
+        const quantity = Math.floor(Math.random() * 5) + 1;
+        const totalPrice = price * quantity;
+        
+        items.push({
+          serviceId: service._id,
+          name: service.name,
+          price,
+          quantity,
+          unit: '件',
+          totalPrice
+        });
+        
+        subTotal += totalPrice;
+      }
+      
+      // 生成订单
+      const deliveryFee = Math.random() > 0.7 ? 10 : 0;
+      const discount = Math.random() > 0.8 ? Math.floor(subTotal * 0.1) : 0;
+      const totalPrice = subTotal + deliveryFee - discount;
+      
+      // 创建订单基础数据
+      const orderData = {
+        user: user._id,
+        store: store._id,
+        orderNo: await Order.generateOrderNo(),
+        pickupCode: await Order.generatePickupCode(),
+        items,
+        status,
+        paymentMethod: Math.random() > 0.5 ? 'wechat' : 'alipay',
+        subTotal,
+        deliveryFee,
+        discount,
+        totalPrice,
+        address: user.address && user.address.length > 0 ? user.address[0] : null,
+        remark: Math.random() > 0.7 ? '请轻柔洗涤' : '',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+      
+      // 根据状态设置额外字段
+      if (status !== 'pending') {
+        orderData.payTime = new Date();
+        
+        // 添加状态历史
+        orderData.statusHistory = [];
+        const statuses = ['pending', 'paid', 'toPickup', 'pickedUp', 'sorting', 'washing', 'drying', 'packaging', 'ready', 'completed'];
+        const currentIndex = statuses.indexOf(status);
+        
+        for (let k = 0; k <= currentIndex; k++) {
+          if (k < statuses.length) {
+            orderData.statusHistory.push({
+              status: statuses[k],
+              timestamp: new Date(Date.now() - (currentIndex - k) * 3600000),
+              remark: `订单${statuses[k]}状态`
+            });
+          }
+        }
+      }
+      
+      orders.push(orderData);
+    }
+    
+    // 5. 保存订单
+    await Order.insertMany(orders);
+    
+    res.status(201).json({
+      code: 0,
+      message: '测试订单创建成功',
+      data: {
+        count: orders.length
+      }
+    });
+    
+  } catch (error) {
+    console.error('创建测试订单失败:', error);
+    res.status(500).json({
+      code: -1,
+      message: '创建测试订单失败: ' + error.message,
       data: null
     });
   }

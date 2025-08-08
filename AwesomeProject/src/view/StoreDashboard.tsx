@@ -167,11 +167,12 @@ const StoreDashboard: React.FC<Props> = ({ navigation }) => {
       const token = await AsyncStorage.getItem('storeAdminToken');
       
       if (!token) {
-        Alert.alert('错误', '用户未登录，无法迁移数据');
+        Alert.alert('错误', '用户未登录，无法添加数据');
         return;
       }
       
-      const response = await fetch(`${API_BASE_URL}/api/store-admin/migrate-orders`, {
+      // 调用快速生成测试订单的API
+      const response = await fetch(`${API_BASE_URL}/api/order/quick-test`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -186,13 +187,13 @@ const StoreDashboard: React.FC<Props> = ({ navigation }) => {
       const data = await response.json();
       
       if (data.code === 0) {
-        Alert.alert('成功', `数据修复完成，已更新${data.data.migratedCount}个订单。请返回订单页面刷新查看。`);
+        Alert.alert('成功', `已添加${data.data.count}条新订单数据。请返回订单页面刷新查看。`);
       } else {
-        Alert.alert('错误', data.message || '数据修复失败');
+        Alert.alert('错误', data.message || '添加订单数据失败');
       }
     } catch (error) {
-      console.error('数据迁移失败:', error);
-      Alert.alert('错误', `数据修复失败: ${error instanceof Error ? error.message : '未知错误'}`);
+      console.error('添加订单数据失败:', error);
+      Alert.alert('错误', `添加订单数据失败: ${error instanceof Error ? error.message : '未知错误'}`);
     } finally {
       setMigratingData(false);
     }
@@ -243,7 +244,7 @@ const StoreDashboard: React.FC<Props> = ({ navigation }) => {
           disabled={migratingData}
         >
           <Text style={styles.migrateButtonText}>
-            {migratingData ? '修复中...' : '修复订单数据'}
+            {migratingData ? '添加中...' : '添加测试数据'}
           </Text>
         </TouchableOpacity>
 
