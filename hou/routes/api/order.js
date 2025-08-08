@@ -710,4 +710,166 @@ router.post('/confirm-pickup', auth, async (req, res) => {
   }
 });
 
+/**
+ * @route POST /api/order/create-test
+ * @desc 创建测试订单（仅用于开发测试）
+ */
+router.post('/create-test', async (req, res) => {
+  try {
+    const { count = 10 } = req.body;
+    const orders = [];
+
+    // 获取用户列表
+    const users = await User.find().limit(20);
+    if (users.length === 0) {
+      return res.status(400).json({
+        code: -1,
+        message: '没有可用的用户，请先创建用户',
+        data: null
+      });
+    }
+
+    // 获取商店列表
+    const stores = await Store.find().limit(10);
+    if (stores.length === 0) {
+      return res.status(400).json({
+        code: -1,
+        message: '没有可用的商店，请先创建商店',
+        data: null
+      });
+    }
+
+    // 获取服务列表
+    const services = await Service.find();
+    if (services.length === 0) {
+      return res.status(400).json({
+        code: -1,
+        message: '没有可用的服务项目，请先创建服务',
+        data: null
+      });
+    }
+
+    // 生成随机订单状态
+    const generateStatus = () => {
+      const statuses = ['pending', 'paid', 'processing', 'ready', 'completed', 'cancelled'];
+      const weights = [0.1, 0.2, 0.3, 0.2, 0.15, 0.05]; // 加权概率，使某些状态出现更频繁
+      
+      let random = Math.random();
+      let sum = 0;
+      for (let i = 0; i < weights.length; i++) {
+        sum += weights[i];
+        if (random <= sum) return statuses[i];
+      }
+      return statuses[0];
+    };
+
+    // 生成随机订单项目
+    const generateItems = () => {
+      const numItems = Math.floor(Math.random() * 4) + 1; // 1-4个商品
+      const items = [];
+      
+      for (let i = 0; i < numItems; i++) {
+        const service = services[Math.floor(Math.random() * services.length)];
+        const quantity = Math.floor(Math.random() * 5) + 1; // 1-5件
+        const price = Math.floor(Math.random() * 50) + 10; // 10-60元
+        
+        items.push({
+          serviceId: service._id,
+          serviceItemId: service._id,
+          name: service.name,
+          price: price,
+          quantity: quantity,
+          unit: '件',
+          totalPrice: price * quantity
+        });
+      }
+      return items;
+    };
+
+    // 计算总价
+    const calculateTotals = (items) => {
+      const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
+      const deliveryFee = Math.random() > 0.7 ? Math.floor(Math.random() * 15) + 5 : 0;
+      const discount = Math.random() > 0.6 ? Math.floor(Math.random() * 20) + 5 : 0;
+      const total = subtotal + deliveryFee - discount;
+      
+      return { subtotal, deliveryFee, discount, total };
+    };
+
+    // 批量创建订单
+    for (let i = 0; i < count; i++) {
+      const user = users[Math.floor(Math.random() * users.length)];
+      const store = stores[Math.floor(Math.random() * stores.length)];
+      const status = generateStatus();
+      const items = generateItems();
+      const { subtotal, deliveryFee, discount, total } = calculateTotals(items);
+      
+      const orderNo = Order.generateOrderNo();
+      const pickupCode = Order.generatePickupCode();
+      
+      const order = new Order({
+        user: user._id,
+        store: store._id,
+        orderNo: orderNo,
+        pickupCode: pickupCode,
+        items: items,
+        status: status,
+        paymentMethod: status !== 'pending' ? ['wechat', 'alipay', 'memberCard'][Math.floor(Math.random() * 3)] : '',
+        subTotal: subtotal,
+        deliveryFee: deliveryFee,
+        discount: discount,
+        totalPrice: total,
+        remark: Math.random() > 0.7 ? '请轻柔洗涤，衣物易损' : '',
+      });
+      
+      // 添加支付时间
+      if (status !== 'pending') {
+        order.payTime = new Date(Date.now() - Math.floor(Math.random() * 7 * 24 * 60 * 60 * 1000));
+      }
+      
+      // 添加预计完成时间
+      if (['processing', 'ready'].includes(status)) {
+        const estimateTime = new Date();
+        estimateTime.setHours(estimateTime.getHours() + Math.floor(Math.random() * 48) + 2);
+        order.estimateCompleteTime = estimateTime;
+      }
+      
+      // 添加完成时间
+      if (status === 'completed') {
+        const completedTime = new Date();
+        completedTime.setHours(completedTime.getHours() - Math.floor(Math.random() * 120));
+        order.completedTime = completedTime;
+      }
+      
+      // 添加取消原因
+      if (status === 'cancelled') {
+        const cancelReasons = ['用户取消', '店铺无法接单', '商品缺货', '其他原因'];
+        order.cancelReason = cancelReasons[Math.floor(Math.random() * cancelReasons.length)];
+      }
+      
+      await order.save();
+      orders.push({
+        id: order._id,
+        orderNo: order.orderNo,
+        status: order.status,
+        totalPrice: order.totalPrice,
+        createdAt: order.createdAt
+      });
+    }
+
+    res.json({
+      code: 0,
+      message: '测试订单创建成功',
+      data: { count: orders.length, orders }
+    });
+  } catch (error) {
+    console.error('创建测试订单失败:', error);
+    res.status(500).json({
+      code: -1,
+      message: '创建测试订单失败',
+      data: null
+    });
+  }
+});
+
 module.exports = router; 
