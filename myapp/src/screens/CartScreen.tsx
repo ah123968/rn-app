@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -8,9 +8,8 @@ import {
   Image,
   SafeAreaView,
   StatusBar,
-  FlatList,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 
 // 数据类型定义
 interface CartItem {
@@ -72,7 +71,7 @@ const cartItems: CartItem[] = [
   },
 ];
 
-const addressInfo: AddressInfo[] = [
+const defaultAddressInfo: AddressInfo[] = [
   {
     type: 'pickup',
     icon: '取',
@@ -108,6 +107,22 @@ const CartScreen = () => {
   const [selectedCategory, setSelectedCategory] = useState(0);
   const [items, setItems] = useState(cartItems);
   const navigation = useNavigation();
+  const route = useRoute<any>();
+  const incomingStore = route?.params?.store as
+    | { name: string; type?: string; distance?: string }
+    | undefined;
+
+  const addressInfo: AddressInfo[] = [
+    defaultAddressInfo[0],
+    defaultAddressInfo[1],
+    {
+      type: 'store',
+      icon: '店',
+      title: '店',
+      address: incomingStore?.name || '浣熊洗护西溪蝶园门店',
+      contact: `${incomingStore?.type || '上门取送'}${incomingStore?.distance ? ' | 距离' + incomingStore.distance : ''}`,
+    },
+  ];
   // 更新商品数量
   const updateQuantity = (id: string, newQuantity: number) => {
     if (newQuantity < 0) return;
@@ -118,21 +133,26 @@ const CartScreen = () => {
     );
   };
 
-  // 计算总价和总数量
-  const totalPrice = items.reduce(
-    (sum, item) => sum + item.price * item.quantity,
-    0,
+  // 计算总价和总数量（缓存避免重复计算）
+  const totalPrice = useMemo(
+    () => items.reduce((sum, item) => sum + item.price * item.quantity, 0),
+    [items]
   );
-  const totalMemberPrice = items.reduce(
-    (sum, item) => sum + item.memberPrice * item.quantity,
-    0,
+  const totalMemberPrice = useMemo(
+    () => items.reduce((sum, item) => sum + item.memberPrice * item.quantity, 0),
+    [items]
   );
-  const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0);
+  const totalQuantity = useMemo(
+    () => items.reduce((sum, item) => sum + item.quantity, 0),
+    [items]
+  );
 
   // 渲染地址项
   const renderAddressItem = useCallback((item: AddressInfo) => (
     <TouchableOpacity onPress={() => {
-      navigation.navigate('AllStore');
+      if(item.type === 'store'){  
+        (navigation as any).navigate('AllStore');
+      }
     }} key={item.type} style={styles.addressItem}>
       <View
         style={[
@@ -148,7 +168,7 @@ const CartScreen = () => {
       </View>
       <Text style={styles.arrowIcon}>›</Text>
     </TouchableOpacity>
-  ), []);
+  ), [navigation]);
 
   // 渲染服务分类
   const renderServiceCategory = (category: string, index: number) => (
@@ -214,12 +234,7 @@ const CartScreen = () => {
       <ScrollView style={styles.scrollView}>
         {/* 地址信息 */}
         <View style={styles.addressSection}>
-          <FlatList
-            data={addressInfo}
-            renderItem={({ item }) => renderAddressItem(item)}
-            keyExtractor={item => item.type}
-            scrollEnabled={false}
-          />
+          {addressInfo.map(item => renderAddressItem(item))}
         </View>
 
         {/* 服务分类 */}
@@ -232,18 +247,14 @@ const CartScreen = () => {
         {/* 商品列表 */}
         <View style={styles.itemsSection}>
           <Text style={styles.sectionTitle}>皮鞋类</Text>
-          <FlatList
-            data={items.filter(item => item.category === '皮鞋类')}
-            renderItem={renderCartItem}
-            keyExtractor={item => item.id}
-          />
+          {items
+            .filter(item => item.category === '皮鞋类')
+            .map(item => renderCartItem({ item }))}
 
           <Text style={styles.sectionTitle}>非皮鞋</Text>
-          <FlatList
-            data={items.filter(item => item.category === '非皮鞋')}
-            renderItem={renderCartItem}
-            keyExtractor={item => item.id}
-          />
+          {items
+            .filter(item => item.category === '非皮鞋')
+            .map(item => renderCartItem({ item }))}
         </View>
       </ScrollView>
 

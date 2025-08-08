@@ -1,34 +1,47 @@
 import { StyleSheet, Text, View, TextInput, TouchableOpacity, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import React, { useState, useRef } from 'react';
-import axios from 'axios';
+import { useNavigation } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { post } from '../utils/request';
 export default function Login() {
+  const navigation = useNavigation();
   const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
   const [countdown, setCountdown] = useState(0);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // 模拟请求验证码
+  // 请求验证码
   const handleSendCode = async () => {
     if (!/^1[3-9]\d{9}$/.test(phone)) {
       Alert.alert('提示', '请输入正确的手机号');
       return;
     }
-      // 这里可调用后端 /api/user/send-code
-    const response = await axios.post('http://10.0.2.2:3000/api/user/send-code',{phone})
-    Alert.alert(response.data.code.toString());
-    setCountdown(60);
-    timerRef.current = setInterval(() => {
-      setCountdown(prev => {
-        if (prev <= 1) {
-          if (timerRef.current) clearInterval(timerRef.current);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
+    try {
+      const response = await post('/user/send-code', { phone });
+      console.log('验证码响应:', response.data);
+      
+      if (response.data.code === 0) {
+        Alert.alert('验证码已发送', `验证码：${response.data.data.code}`);
+        setCountdown(60);
+        timerRef.current = setInterval(() => {
+          setCountdown(prev => {
+            if (prev <= 1) {
+              if (timerRef.current) clearInterval(timerRef.current);
+              return 0;
+            }
+            return prev - 1;
+          });
+        }, 1000);
+      } else {
+        Alert.alert('发送失败', response.data.message || '验证码发送失败');
+      }
+    } catch (error) {
+      console.error('发送验证码失败:', error);
+      Alert.alert('错误', '发送验证码失败，请重试');
+    }
   };
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     if (!/^1[3-9]\d{9}$/.test(phone)) {
       Alert.alert('提示', '请输入正确的手机号');
       return;
@@ -37,8 +50,28 @@ export default function Login() {
       Alert.alert('提示', '请输入验证码');
       return;
     }
-    // 这里可调用后端 /api/user/login
-    Alert.alert('登录', `手机号: ${phone}\n验证码: ${code}`);
+    try {
+      const response = await post('/user/login', { phone, code });
+      console.log('登录响应:', response.data);
+      
+      if (response.data.code === 0) {
+        // 保存token到本地存储
+        const tokenData = {
+          token: response.data.data.token,
+          userInfo: response.data.data
+        };
+        await AsyncStorage.setItem('userToken', JSON.stringify(tokenData));
+        
+        // 登录成功，导航到主页
+        (navigation as any).navigate('MainTabs');
+        Alert.alert('登录成功', '欢迎使用浣熊洗护');
+      } else {
+        Alert.alert('登录失败', response.data.message || '登录失败，请重试');
+      }
+    } catch (error) {
+      console.error('登录失败:', error);
+      Alert.alert('错误', '登录失败，请重试');
+    }
   };
 
   React.useEffect(() => {

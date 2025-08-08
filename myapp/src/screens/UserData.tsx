@@ -1,7 +1,9 @@
 import React from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 export default function UserData() {
   const navigation = useNavigation();
   // 用户信息数据
@@ -11,9 +13,33 @@ export default function UserData() {
     { label: '绑定微信', value: 'wangmiao' },
   ];
 
-  const handleLogout = () => {
-    // 处理退出登录逻辑
-    navigation.navigate('Login');
+  const handleLogout = async () => {
+    Alert.alert(
+      '退出登录',
+      '确定要退出登录吗？',
+      [
+        {
+          text: '取消',
+          style: 'cancel',
+        },
+        {
+          text: '确定',
+          onPress: async () => {
+            try {
+              // 清除AsyncStorage中的用户数据
+              await AsyncStorage.removeItem('userToken');
+              await AsyncStorage.removeItem('userInfo');
+              
+              // 导航到登录页面
+              (navigation as any).navigate('Login');
+            } catch (error) {
+              console.error('退出登录失败:', error);
+              Alert.alert('错误', '退出登录失败，请重试');
+            }
+          },
+        },
+      ]
+    );
   };
 
   return (
