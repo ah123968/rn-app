@@ -8,20 +8,16 @@ import {
   Image,
   SafeAreaView,
   StatusBar,
+  Alert,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 
-// 数据类型定义
-interface CartItem {
-  id: string;
-  name: string;
-  price: number;
-  memberPrice: number;
-  quantity: number;
-  image: string;
-  category: string;
-}
+// 导入购物车上下文
+import { useCart, CartItem } from '../utils/CartContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import request, { post } from '../utils/request';
 
+// 地址类型定义
 interface AddressInfo {
   type: 'pickup' | 'delivery' | 'store';
   icon: string;
@@ -31,46 +27,7 @@ interface AddressInfo {
   distance?: string;
 }
 
-// 模拟数据
-const cartItems: CartItem[] = [
-  {
-    id: '1',
-    name: '皮面运动鞋',
-    price: 50,
-    memberPrice: 25,
-    quantity: 1,
-    image: 'https://via.placeholder.com/60x60',
-    category: '皮鞋类',
-  },
-  {
-    id: '2',
-    name: '单皮鞋',
-    price: 50,
-    memberPrice: 25,
-    quantity: 2,
-    image: 'https://via.placeholder.com/60x60',
-    category: '皮鞋类',
-  },
-  {
-    id: '3',
-    name: '棉皮鞋',
-    price: 25,
-    memberPrice: 12.5,
-    quantity: 0,
-    image: 'https://via.placeholder.com/60x60',
-    category: '皮鞋类',
-  },
-  {
-    id: '4',
-    name: '网面布面鞋',
-    price: 20,
-    memberPrice: 10,
-    quantity: 1,
-    image: 'https://via.placeholder.com/60x60',
-    category: '非皮鞋',
-  },
-];
-
+// 默认地址数据
 const defaultAddressInfo: AddressInfo[] = [
   {
     type: 'pickup',
@@ -95,6 +52,7 @@ const defaultAddressInfo: AddressInfo[] = [
   },
 ];
 
+// 服务分类
 const serviceCategories = [
   '洗衣干洗',
   '洗鞋修鞋',
@@ -105,12 +63,21 @@ const serviceCategories = [
 
 const CartScreen = () => {
   const [selectedCategory, setSelectedCategory] = useState(0);
-  const [items, setItems] = useState(cartItems);
   const navigation = useNavigation();
   const route = useRoute<any>();
   const incomingStore = route?.params?.store as
     | { name: string; type?: string; distance?: string }
     | undefined;
+
+  // 使用购物车上下文
+  const { 
+    items, 
+    updateQuantity, 
+    getTotalItems, 
+    getTotalPrice, 
+    getMemberPrice, 
+    clearCart 
+  } = useCart();
 
   const addressInfo: AddressInfo[] = [
     defaultAddressInfo[0],
@@ -123,29 +90,19 @@ const CartScreen = () => {
       contact: `${incomingStore?.type || '上门取送'}${incomingStore?.distance ? ' | 距离' + incomingStore.distance : ''}`,
     },
   ];
-  // 更新商品数量
-  const updateQuantity = (id: string, newQuantity: number) => {
-    if (newQuantity < 0) return;
-    setItems(prevItems =>
-      prevItems.map(item =>
-        item.id === id ? { ...item, quantity: newQuantity } : item,
-      ),
-    );
-  };
 
-  // 计算总价和总数量（缓存避免重复计算）
-  const totalPrice = useMemo(
-    () => items.reduce((sum, item) => sum + item.price * item.quantity, 0),
-    [items]
-  );
-  const totalMemberPrice = useMemo(
-    () => items.reduce((sum, item) => sum + item.memberPrice * item.quantity, 0),
-    [items]
-  );
-  const totalQuantity = useMemo(
-    () => items.reduce((sum, item) => sum + item.quantity, 0),
-    [items]
-  );
+  // 计算不同分类的商品
+  const categorizedItems = useMemo(() => {
+    const result: Record<string, CartItem[]> = {};
+    items.forEach(item => {
+      const category = item.category || '默认分类';
+      if (!result[category]) {
+        result[category] = [];
+      }
+      result[category].push(item);
+    });
+    return result;
+  }, [items]);
 
   // 渲染地址项
   const renderAddressItem = useCallback((item: AddressInfo) => (
@@ -192,15 +149,17 @@ const CartScreen = () => {
   );
 
   // 渲染商品项
-  const renderCartItem = ({ item }: { item: CartItem }) => (
-    <View style={styles.cartItem}>
-      <Image source={{ uri: item.image }} style={styles.itemImage} />
+  const renderCartItem = (item: CartItem) => (
+    <View key={item.id} style={styles.cartItem}>
+      <View style={[styles.itemImage, {backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center'}]}>
+        <Text style={{fontSize: 24}}>🧺</Text>
+      </View>
       <View style={styles.itemInfo}>
         <Text style={styles.itemName}>{item.name}</Text>
         <View style={styles.priceContainer}>
-          <Text style={styles.price}>¥{item.price.toFixed(2)}</Text>
+          <Text style={styles.price}>¥{item.price.toFixed(2)}/{item.unit}</Text>
           <Text style={styles.memberPrice}>
-            会员价最低¥{item.memberPrice.toFixed(2)}
+            会员价最低¥{(item.price * 0.5).toFixed(2)}
           </Text>
         </View>
       </View>
@@ -221,6 +180,129 @@ const CartScreen = () => {
       </View>
     </View>
   );
+
+  // 处理下单操作
+  const handleOrder = async () => {
+    if (items.length === 0) {
+      Alert.alert('提示', '购物车为空，请先添加商品');
+      return;
+    }
+    
+    // 先显示确认对话框
+    Alert.alert(
+      '提交订单',
+      '确认提交洗护订单吗？',
+      [
+        {
+          text: '取消',
+          style: 'cancel'
+        },
+        {
+          text: '确定',
+          onPress: async () => {
+            try {
+              // 1. 获取登录token
+              const tokenString = await AsyncStorage.getItem('userToken');
+              if (!tokenString) {
+                Alert.alert('提示', '请先登录');
+                navigation.navigate('Login' as never);
+                return;
+              }
+              
+              const tokenData = JSON.parse(tokenString);
+              
+              // 2. 准备订单数据
+              const orderItems = items.map(item => ({
+                serviceItemId: item.id,
+                name: item.name,
+                price: item.price,
+                quantity: item.quantity,
+                unit: item.unit
+              }));
+              
+                              // 3. 调用创建订单API
+              console.log('开始调用创建订单API');
+              
+              // 打印请求数据，便于调试
+              const requestData = {
+                storeId: '6892cbd37ae4c574159baa0f', // 使用真实存在的门店ID："洁净干洗店（总店）"
+                items: orderItems,
+                deliveryType: 'self', // 可以根据用户选择的配送方式调整
+                remark: ''
+              };
+              console.log('发送的订单数据:', JSON.stringify(requestData));
+              
+              const response = await post(
+                '/order/create',  // 使用封装的请求方法，baseURL已在request.ts中配置
+                requestData
+              );
+              
+              if (response.code === 0) {
+                // 订单创建成功
+                Alert.alert(
+                  '订单创建成功',
+                  `订单号: ${response.data.orderNo}\n总价: ¥${response.data.totalPrice.toFixed(2)}`,
+                  [
+                    {
+                      text: '确定',
+                      onPress: () => {
+                        // 清空购物车
+                        clearCart();
+                        // 导航到订单页面
+                        navigation.navigate('Orders' as never);
+                      }
+                    }
+                  ]
+                );
+              } else {
+                // 处理错误
+                throw new Error(response.message || '创建订单失败');
+              }
+            } catch (error: any) {
+              console.error('下单失败:', error);
+              // 更详细的错误信息，帮助调试
+              if (error.response) {
+                // 服务器返回了错误响应
+                console.error('错误响应状态:', error.response.status);
+                console.error('错误响应数据:', error.response.data);
+                Alert.alert('下单失败', `服务器错误(${error.response.status}): ${error.response.data?.message || '未知错误'}`);
+              } else if (error.request) {
+                // 请求发出但没有收到响应
+                console.error('无响应:', error.request);
+                Alert.alert('下单失败', '服务器无响应，请检查网络连接和后端服务是否运行');
+              } else {
+                // 请求设置过程中发生的错误
+                Alert.alert('下单失败', error instanceof Error ? error.message : '网络异常，请稍后再试');
+              }
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // 购物车为空时显示
+  if (items.length === 0) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="dark-content" backgroundColor="#e2ac62" />
+        <View style={styles.statusBar}>
+          <Text style={styles.title}>洗衣筐</Text>
+        </View>
+        
+        <View style={styles.emptyCartContainer}>
+          <Text style={styles.emptyCartIcon}>🛒</Text>
+          <Text style={styles.emptyCartText}>购物车空空如也</Text>
+          <TouchableOpacity 
+            style={styles.goShoppingButton}
+            onPress={() => navigation.navigate('Home' as never)}
+          >
+            <Text style={styles.goShoppingText}>去选购服务</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -252,8 +334,16 @@ const CartScreen = () => {
           </ScrollView>
         </View>
 
-        {/* 商品列表 */}
+        {/* 商品列表 - 按分类显示 */}
         <View style={styles.itemsSection}>
+
+          {Object.entries(categorizedItems).map(([category, categoryItems]) => (
+            <View key={category}>
+              <Text style={styles.sectionTitle}>{category}</Text>
+              {categoryItems.map(item => renderCartItem(item))}
+            </View>
+          ))}
+
           <Text style={styles.sectionTitle}>皮鞋类</Text>
           {items
             .filter(item => item.category === '皮鞋类')
@@ -271,21 +361,22 @@ const CartScreen = () => {
                 {renderCartItem({ item })}
               </React.Fragment>
             ))}
+
         </View>
       </ScrollView>
 
       {/* 底部购物车栏 */}
       <View style={styles.bottomBar}>
         <View style={styles.cartInfo}>
-          <Text style={styles.cartText}>共{totalQuantity}件</Text>
+          <Text style={styles.cartText}>共{getTotalItems()}件</Text>
         </View>
         <View style={styles.priceInfo}>
-          <Text style={styles.totalPrice}>¥{totalPrice.toFixed(2)}</Text>
+          <Text style={styles.totalPrice}>¥{getTotalPrice().toFixed(2)}</Text>
           <Text style={styles.totalMemberPrice}>
-            会员价最低¥{totalMemberPrice.toFixed(2)}
+            会员价最低¥{getMemberPrice().toFixed(2)}
           </Text>
         </View>
-        <TouchableOpacity style={styles.orderButton}>
+        <TouchableOpacity style={styles.orderButton} onPress={handleOrder}>
           <Text style={styles.orderButtonText}>下单洗护</Text>
         </TouchableOpacity>
       </View>
@@ -520,6 +611,32 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
+  // 空购物车样式
+  emptyCartContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyCartIcon: {
+    fontSize: 60,
+    marginBottom: 20,
+    color: '#ccc',
+  },
+  emptyCartText: {
+    fontSize: 16,
+    color: '#999',
+    marginBottom: 20,
+  },
+  goShoppingButton: {
+    backgroundColor: '#FF6B35',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+  },
+  goShoppingText: {
+    color: 'white',
+    fontSize: 14,
+  },
 });
 
-export default CartScreen;
+export default CartScreen; 
