@@ -365,4 +365,80 @@ router.post('/bind-invite', auth, async (req, res) => {
   }
 });
 
+/**
+ * @route POST /api/user/create-test
+ * @desc 创建测试用户（仅用于开发测试）
+ */
+router.post('/create-test', async (req, res) => {
+  try {
+    const { count = 5 } = req.body;
+    const users = [];
+
+    // 生成随机手机号
+    const generatePhone = () => {
+      const prefixes = ['139', '138', '137', '136', '135', '134', '159', '158', '157', '188', '187'];
+      const prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
+      const suffix = Math.floor(Math.random() * 90000000) + 10000000;
+      return `${prefix}${suffix}`;
+    };
+
+    // 生成随机昵称
+    const generateNickname = (index) => {
+      const nicknames = ['张三', '李四', '王五', '赵六', '钱七', '孙八', '周九', '吴十', 
+        '郑十一', '王小明', '李小红', '张小花', '刘大力', '陈晓', '林一一'];
+      return nicknames[index % nicknames.length] + Math.floor(Math.random() * 1000);
+    };
+
+    // 生成随机头像
+    const generateAvatar = () => {
+      return `https://api.dicebear.com/7.x/personas/svg?seed=${Math.random()}`;
+    };
+
+    // 批量创建用户
+    for (let i = 0; i < count; i++) {
+      const phoneNumber = generatePhone();
+      
+      // 检查手机号是否已存在
+      const existingUser = await User.findOne({ phone: phoneNumber });
+      if (existingUser) {
+        continue;
+      }
+      
+      const user = new User({
+        phone: phoneNumber,
+        nickname: generateNickname(i),
+        avatar: generateAvatar(),
+        gender: ['male', 'female', 'unknown'][Math.floor(Math.random() * 3)],
+        balance: Math.floor(Math.random() * 1000),
+        points: Math.floor(Math.random() * 500),
+        isVip: Math.random() > 0.7,
+        inviteCode: `INV${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
+        lastLoginAt: new Date()
+      });
+      
+      await user.save();
+      users.push({
+        id: user._id,
+        phone: user.phone,
+        nickname: user.nickname,
+        balance: user.balance,
+        isVip: user.isVip
+      });
+    }
+
+    res.json({
+      code: 0,
+      message: '测试用户创建成功',
+      data: { count: users.length, users }
+    });
+  } catch (error) {
+    console.error('创建测试用户失败:', error);
+    res.status(500).json({
+      code: -1,
+      message: '创建测试用户失败',
+      data: null
+    });
+  }
+});
+
 module.exports = router; 

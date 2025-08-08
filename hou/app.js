@@ -41,7 +41,7 @@ mongoose.connect('mongodb+srv://c502121895:hm2Pyf8TM4di7G7S@cluster0.u3c9jsm.mon
   .catch(err => {
     console.error('数据库连接失败:', err);
   });
-
+  
 // 配置跨域
 app.use(cors());
 

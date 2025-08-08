@@ -12,6 +12,7 @@ const { generateAdminToken, storeAdminAuth, checkAdminRole } = require('../../mi
 router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
+    console.log(username, password);
     
     // 验证参数
     if (!username || !password) {
@@ -461,6 +462,97 @@ router.post('/init', async (req, res) => {
     res.status(500).json({
       code: -1,
       message: '初始化管理员账号失败',
+      data: null
+    });
+  }
+});
+
+/**
+ * @route POST /api/store-admin/create
+ * @desc 创建新商家账号（仅用于开发测试）
+ */
+router.post('/create', async (req, res) => {
+  try {
+    const { username, password, name, phone, storeName, storeAddress } = req.body;
+    
+    // 验证必要参数
+    if (!username || !password || !name || !phone) {
+      return res.status(400).json({
+        code: -1,
+        message: '用户名、密码、姓名和电话不能为空',
+        data: null
+      });
+    }
+    
+    // 检查用户名是否已存在
+    const existingAdmin = await StoreAdmin.findOne({ username });
+    if (existingAdmin) {
+      return res.status(400).json({
+        code: -1,
+        message: '用户名已存在',
+        data: null
+      });
+    }
+    
+    // 创建或获取店铺
+    let store;
+    if (storeName) {
+      // 如果提供了店铺信息，创建新店铺
+      store = new Store({
+        name: storeName,
+        address: storeAddress || '默认地址',
+        location: {
+          type: 'Point',
+          coordinates: [116.4074, 39.9042] // 默认北京坐标
+        },
+        phone: phone,
+        businessHours: '09:00-21:00',
+        images: [],
+        services: ['干洗', '水洗', '熨烫'],
+        introduction: `${storeName}，专业洗护服务。`,
+        status: 'open'
+      });
+      await store.save();
+    } else {
+      // 否则使用第一个可用店铺
+      store = await Store.findOne();
+      if (!store) {
+        return res.status(400).json({
+          code: -1,
+          message: '没有可用店铺，请提供店铺信息',
+          data: null
+        });
+      }
+    }
+    
+    // 创建管理员账号
+    const admin = new StoreAdmin({
+      username,
+      password, // 密码会在保存前自动加密（通过模型中的pre-save中间件）
+      name,
+      phone,
+      role: 'admin', // 设为管理员
+      store: store._id,
+      isActive: true
+    });
+    
+    await admin.save();
+    
+    res.json({
+      code: 0,
+      message: '商家账号创建成功',
+      data: {
+        username,
+        name,
+        storeName: store.name,
+        storeId: store._id
+      }
+    });
+  } catch (error) {
+    console.error('创建商家账号失败:', error);
+    res.status(500).json({
+      code: -1,
+      message: '创建商家账号失败',
       data: null
     });
   }
