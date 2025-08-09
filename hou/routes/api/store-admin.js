@@ -243,6 +243,8 @@ router.put('/order/:id/status', storeAdminAuth, async (req, res) => {
   try {
     const orderId = req.params.id;
     const { status, _allowPendingToProcessing, currentStatus } = req.body;
+    // 兼容前端聚合状态：将 processing 映射为第一个具体阶段 toPickup
+    const targetStatus = status === 'processing' ? 'toPickup' : status;
     
     // 更新可接受的状态列表
     const validStatuses = [
@@ -251,7 +253,7 @@ router.put('/order/:id/status', storeAdminAuth, async (req, res) => {
       'ready', 'delivering', 'completed', 'cancelled'
     ];
     
-    if (!status || !validStatuses.includes(status)) {
+    if (!targetStatus || !validStatuses.includes(targetStatus)) {
       return res.status(400).json({
         code: -1,
         message: '状态无效',
@@ -281,7 +283,7 @@ router.put('/order/:id/status', storeAdminAuth, async (req, res) => {
     
     // 获取订单当前状态
     const orderStatus = order.status;
-    console.log(`订单状态更新请求: ${orderStatus} -> ${status} (订单ID: ${orderId})`);
+    console.log(`订单状态更新请求: ${orderStatus} -> ${targetStatus} (订单ID: ${orderId})`);
     
     // 定义合法的状态转换规则
     const validTransitions = {
@@ -301,13 +303,13 @@ router.put('/order/:id/status', storeAdminAuth, async (req, res) => {
     };
     
     // 检查是否是合理的状态进度
-    let allowUpdate = validTransitions[orderStatus] && validTransitions[orderStatus].includes(status);
+    let allowUpdate = validTransitions[orderStatus] && validTransitions[orderStatus].includes(targetStatus);
     
     // 不允许重复设置相同状态
-    if (orderStatus === status) {
+    if (orderStatus === targetStatus) {
       return res.status(400).json({
         code: -1,
-        message: `订单已经是 ${status} 状态`,
+        message: `订单已经是 ${targetStatus} 状态`,
         data: null
       });
     }
@@ -323,13 +325,13 @@ router.put('/order/:id/status', storeAdminAuth, async (req, res) => {
     
     // 特殊处理: 如果前端发送了_allowPendingToProcessing参数，允许从pending到其他状态的转换
     if (orderStatus === 'pending' && _allowPendingToProcessing) {
-      console.log(`特殊处理: 允许订单 ${orderId} 从 pending 状态更新为 ${status} 状态`);
+      console.log(`特殊处理: 允许订单 ${orderId} 从 pending 状态更新为 ${targetStatus} 状态`);
       allowUpdate = true;
     }
     
     // 开发环境临时放宽限制，允许任意状态转换(除了上面明确禁止的)
     const isDevelopment = process.env.NODE_ENV !== 'production';
-    if (isDevelopment && status !== orderStatus && orderStatus !== 'completed' && orderStatus !== 'cancelled') {
+    if (isDevelopment && targetStatus !== orderStatus && orderStatus !== 'completed' && orderStatus !== 'cancelled') {
       console.log('开发环境: 允许任意有效状态转换');
       allowUpdate = true;
     }
@@ -337,13 +339,13 @@ router.put('/order/:id/status', storeAdminAuth, async (req, res) => {
     if (!allowUpdate) {
       return res.status(400).json({
         code: -1,
-        message: `无法将订单从 ${orderStatus} 状态更改为 ${status} 状态`,
+        message: `无法将订单从 ${orderStatus} 状态更改为 ${targetStatus} 状态`,
         data: null
       });
     }
     
     // 更新订单状态
-    order.status = status;
+    order.status = targetStatus;
     
     // 处理特定状态的额外逻辑
     const now = new Date();
@@ -354,18 +356,18 @@ router.put('/order/:id/status', storeAdminAuth, async (req, res) => {
     }
     
     order.statusHistory.push({
-      status,
+      status: targetStatus,
       timestamp: now,
       operator: req.adminId
     });
     
     // 如果更新为完成状态，设置完成时间
-    if (status === 'completed') {
+    if (targetStatus === 'completed') {
       order.completedTime = now;
     }
     
     // 如果更新为准备好取件状态，设置预计完成时间
-    if (status === 'ready') {
+    if (targetStatus === 'ready') {
       // 默认设置为当前时间后的2小时
       const estimateTime = new Date(now);
       estimateTime.setHours(estimateTime.getHours() + 2);
@@ -373,13 +375,13 @@ router.put('/order/:id/status', storeAdminAuth, async (req, res) => {
     }
     
     // 如果是洗涤相关状态，记录对应的洗涤进度
-    if (['sorting', 'washing', 'drying', 'ironing', 'packaging'].includes(status)) {
-      order.processingStatus = status;
+    if (['sorting', 'washing', 'drying', 'ironing', 'packaging'].includes(targetStatus)) {
+      order.processingStatus = targetStatus;
       order.processingTime = now;
     }
     
     // 如果是配送状态，记录配送开始时间
-    if (status === 'delivering') {
+    if (targetStatus === 'delivering') {
       order.deliveryStartTime = now;
     }
     
@@ -387,7 +389,7 @@ router.put('/order/:id/status', storeAdminAuth, async (req, res) => {
     await order.save();
     
     // 返回成功响应
-    console.log(`订单 ${orderId} 状态更新成功: ${orderStatus} -> ${status}`);
+    console.log(`订单 ${orderId} 状态更新成功: ${orderStatus} -> ${targetStatus}`);
     
     res.json({
       code: 0,
@@ -403,7 +405,7 @@ router.put('/order/:id/status', storeAdminAuth, async (req, res) => {
     console.error('更新订单状态失败:', error);
     res.status(500).json({
       code: -1,
-      message: '更新订单状态失败: ' + error.message,
+      message: '更新状态失败',
       data: null
     });
   }
@@ -439,8 +441,9 @@ router.post('/order/take', storeAdminAuth, async (req, res) => {
       });
     }
     
-    // 检查订单状态
-    if (order.status !== 'paid') {
+    // 允许的取件前状态
+    const allowedBeforePickup = ['paid', 'pending', 'toPickup'];
+    if (!allowedBeforePickup.includes(order.status)) {
       return res.status(400).json({
         code: -1,
         message: `订单当前状态为 ${order.status}，无法取件`,
@@ -450,6 +453,16 @@ router.post('/order/take', storeAdminAuth, async (req, res) => {
     
     // 更新订单状态为处理中
     order.status = 'processing';
+    const now = new Date();
+    if (!order.statusHistory) order.statusHistory = [];
+    order.statusHistory.push({
+      status: 'processing',
+      timestamp: now,
+      operator: req.adminId,
+      remark: '门店凭提取码取衣'
+    });
+    order.processingStatus = 'sorting';
+    order.processingTime = now;
     await order.save();
     
     res.json({

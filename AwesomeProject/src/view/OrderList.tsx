@@ -13,6 +13,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { RootStackParamList } from '../router/Router';
+import { useFocusEffect } from '@react-navigation/native';
 
 type OrderListScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'OrderList'>;
 type OrderListScreenRouteProp = RouteProp<RootStackParamList, 'OrderList'>;
@@ -56,19 +57,39 @@ const OrderList: React.FC<Props> = ({ navigation, route }) => {
     getToken();
   }, []);
 
-  // 首次加载
+  // 首次加载（当 token 就绪时）
   useEffect(() => {
     if (token) {
       loadAllOrders(true);
     }
   }, [token]);
 
-  // 监听状态变化，应用前端筛选
+  // 页面聚焦时自动刷新，避免返回列表后需要手动刷新
+  useFocusEffect(
+    React.useCallback(() => {
+      let isActive = true;
+      const init = async () => {
+        // 确保获取最新 token
+        const storedToken = await AsyncStorage.getItem('storeAdminToken');
+        if (isActive) {
+          if (!token && storedToken) {
+            setToken(storedToken);
+          }
+          if (storedToken) {
+            // 直接刷新列表
+            await loadAllOrders(true);
+          }
+        }
+      };
+      init();
+      return () => { isActive = false; };
+    }, [currentStatus, filterMode])
+  );
+
+  // 监听状态或数据变化，始终应用筛选（即使为空也同步 orders）
   useEffect(() => {
-    if (allOrders.length > 0) {
-      console.log('应用筛选条件:', currentStatus, '筛选模式:', filterMode);
-      applyFilter();
-    }
+    console.log('应用筛选条件:', currentStatus, '筛选模式:', filterMode, 'allOrders数量:', allOrders.length);
+    applyFilter();
   }, [currentStatus, allOrders, filterMode]);
 
   // 加载所有订单，不根据状态筛选
@@ -82,9 +103,16 @@ const OrderList: React.FC<Props> = ({ navigation, route }) => {
     }
 
     try {
-      // 检查token
-      if (!token) {
-        navigation.navigate('StoreLogin');
+      // 优先使用内存中的 token；若不存在则从存储中读取
+      let effectiveToken = token;
+      if (!effectiveToken) {
+        effectiveToken = await AsyncStorage.getItem('storeAdminToken');
+        if (effectiveToken) {
+          setToken(effectiveToken);
+        }
+      }
+      if (!effectiveToken) {
+        navigation.replace('StoreLogin');
         return;
       }
 
@@ -106,7 +134,7 @@ const OrderList: React.FC<Props> = ({ navigation, route }) => {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${effectiveToken}`
         }
       });
 
@@ -147,9 +175,7 @@ const OrderList: React.FC<Props> = ({ navigation, route }) => {
         if (!resetPage) {
           setPage(currentPage + 1);
         }
-        
-        // 应用当前筛选状态
-        applyFilter();
+        // 不在这里调用 applyFilter，等待 allOrders 更新后由 useEffect 统一处理
       } else {
         console.error('API返回错误:', data.message);
         // 使用模拟数据
@@ -168,8 +194,13 @@ const OrderList: React.FC<Props> = ({ navigation, route }) => {
   // 应用筛选条件到订单列表
   const applyFilter = () => {
     if (filterMode === 'filter' && currentStatus !== 'all') {
-      // 筛选模式: 只显示当前选择状态的订单
-      setOrders(allOrders.filter(order => order.status === currentStatus));
+      // "洗护中" 为一组状态
+      const processingGroup = ['sorting','washing','drying','ironing','packaging'];
+      if (currentStatus === 'washing') {
+        setOrders(allOrders.filter(order => processingGroup.includes(order.status)));
+      } else {
+        setOrders(allOrders.filter(order => order.status === currentStatus));
+      }
     } else {
       // 高亮模式或全部模式: 显示所有订单
       setOrders(allOrders);
@@ -230,15 +261,8 @@ const OrderList: React.FC<Props> = ({ navigation, route }) => {
       });
     }
 
-    // 根据状态过滤
-    let filteredOrders = mockOrders;
-    if (currentStatus !== 'all') {
-      filteredOrders = mockOrders.filter(order => order.status === currentStatus);
-    }
-
-    // 设置订单数据
-    setAllOrders(filteredOrders); // 使用allOrders存储模拟数据
-    applyFilter(); // 应用筛选
+    // 直接设置所有订单，筛选交给 useEffect 统一处理
+    setAllOrders(mockOrders);
   };
 
   // 更新订单状态
@@ -284,11 +308,13 @@ const OrderList: React.FC<Props> = ({ navigation, route }) => {
       case 'paid': return 'paid';
       case 'toPickup': return 'toPickup';
       case 'pickedUp': return 'pickedUp';
-      case 'sorting': return 'sorting';
-      case 'washing': return 'washing';
-      case 'drying': return 'drying';
-      case 'ironing': return 'ironing';
-      case 'packaging': return 'packaging';
+      // 洗护中系列统一映射为 processing，后端会返回分拣/洗涤/烘干/熨烫/包装等阶段
+      case 'sorting':
+      case 'washing':
+      case 'drying':
+      case 'ironing':
+      case 'packaging':
+        return 'processing';
       case 'ready': return 'ready';
       case 'delivering': return 'delivering';
       case 'completed': return 'completed';

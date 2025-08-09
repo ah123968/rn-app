@@ -15,6 +15,9 @@ var servicesApiRouter = require('./routes/api/services');
 var orderApiRouter = require('./routes/api/order');
 var storeAdminApiRouter = require('./routes/api/store-admin');
 
+// 显式注册需要被 populate 的模型
+require('./models/address');
+
 // 未实现的路由模块，临时创建
 const router = express.Router();
 router.all('*', (req, res) => {
