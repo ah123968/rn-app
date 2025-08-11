@@ -37,7 +37,7 @@ const ProfileScreen = () => {
           
           <TouchableOpacity style={styles.settingsButton}>
             <Text style={styles.settingsIcon} onPress={() => {
-              navigation.navigate('DetailScreen')
+              navigation.navigate('UserData')
             }}>⚙️</Text>
           </TouchableOpacity>
         </View>

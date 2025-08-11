@@ -1,41 +1,41 @@
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView } from 'react-native'
-import React, { useState } from 'react'
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, SafeAreaView, ActivityIndicator } from 'react-native'
+import React, { useState, useEffect, useCallback } from 'react'
+import AsyncStorage from '@react-native-async-storage/async-storage'
+import { get } from '../utils/request'
+import { useNavigation } from '@react-navigation/native'
+
+type BackendOrder = {
+  orderId: string;
+  orderNo: string;
+  storeName: string;
+  status: 'pending' | 'paid' | 'processing' | 'ready' | 'completed' | 'cancelled';
+  totalPrice: number;
+  createTime: string;
+  items: { name: string; quantity: number }[];
+};
+
+type InvoiceOrder = {
+  id: string;
+  orderNo: string;
+  type: string;
+  status: string;
+  service: string;
+  details: string;
+  amount: string;
+  createTime: string;
+};
 
 export default function Invoice() {
   const [activeTab, setActiveTab] = useState(0)
+  const [loading, setLoading] = useState(false)
+  const [completedOrders, setCompletedOrders] = useState<InvoiceOrder[]>([])
+  const [issuedInvoices] = useState<InvoiceOrder[]>([])
+  const navigation = useNavigation<any>()
 
   const tabs = [
     { id: 0, title: '待开票' },
     { id: 1, title: '已开票' },
     { id: 2, title: '发票抬头' }
-  ]
-
-  const pendingInvoices = [
-    {
-      id: '1',
-      type: '洗护订单',
-      status: '完成取件',
-      service: '上门取送',
-      details: '商品数量*3 | 返洗数量*1',
-      amount: '¥120.00'
-    },
-    {
-      id: '202006060021025',
-      type: '会员年卡500',
-      date: '2020-06-06 09:25',
-      amount: '¥500.00'
-    }
-  ]
-
-  const issuedInvoices = [
-    {
-      id: '1',
-      type: '洗护订单',
-      status: '已开发票',
-      service: '上门取送',
-      details: '商品数量*3 | 返洗数量*1',
-      amount: '¥120.00'
-    }
   ]
 
   const invoiceHeaders = [
@@ -46,67 +46,112 @@ export default function Invoice() {
     }
   ]
 
+  // 从后端获取已完成订单
+  const fetchCompletedOrders = useCallback(async () => {
+    try {
+      setLoading(true)
+      const tokenStr = await AsyncStorage.getItem('userToken')
+      const token = tokenStr ? JSON.parse(tokenStr).token : ''
+      
+      const headers: any = {}
+      if (token) {
+        headers.Authorization = `Bearer ${token}`
+      }
+
+      const params = {
+        _t: Date.now(),
+        status: 'completed'
+      }
+
+      const resp = await get('/order/list', params, headers)
+      const res = resp.data
+      
+      if (res.code === 0 && res.data?.orders) {
+        const orders: InvoiceOrder[] = (res.data.orders as BackendOrder[]).map(order => ({
+          id: order.orderId,
+          orderNo: order.orderNo,
+          type: '洗护订单',
+          status: '完成取件',
+          service: '上门取送',
+          details: `商品数量*${order.items?.reduce((sum, item) => sum + (item.quantity || 0), 0) || 0}`,
+          amount: `¥${order.totalPrice.toFixed(2)}`,
+          createTime: order.createTime
+        }))
+        setCompletedOrders(orders)
+      } else {
+        setCompletedOrders([])
+      }
+    } catch (e) {
+      console.error('获取已完成订单失败:', e)
+      setCompletedOrders([])
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchCompletedOrders()
+  }, [fetchCompletedOrders])
+
   const renderPendingInvoices = () => (
     <ScrollView style={styles.content}>
-      {pendingInvoices.map((invoice, index) => (
-        <View key={index} style={styles.card}>
-          {invoice.type === '洗护订单' ? (
-            <>
-              <View style={styles.cardHeader}>
-                <Text style={styles.orderTitle}>{invoice.type}</Text>
-                <View style={styles.statusTag}>
-                  <Text style={styles.statusText}>{invoice.status}</Text>
-                </View>
-              </View>
-              <Text style={styles.serviceText}>{invoice.service}</Text>
-              <Text style={styles.detailsText}>{invoice.details}</Text>
-              <View style={styles.cardFooter}>
-                <Text style={styles.amountLabel}>实付费用:</Text>
-                <Text style={styles.amountValue}>{invoice.amount}</Text>
-                <TouchableOpacity style={styles.invoiceButton}>
-                  <Text style={styles.invoiceButtonText}>开发票</Text>
-                </TouchableOpacity>
-              </View>
-            </>
-          ) : (
-            <>
-              <View style={styles.cardHeader}>
-                <Text style={styles.transactionId}>{invoice.id}</Text>
-                <Text style={styles.dateText}>{invoice.date}</Text>
-              </View>
-              <Text style={styles.orderTitle}>{invoice.type}</Text>
-              <View style={styles.cardFooter}>
-                <Text style={styles.amountLabel}>实付金额:</Text>
-                <Text style={styles.amountValue}>{invoice.amount}</Text>
-                <TouchableOpacity style={styles.invoiceButton}>
-                  <Text style={styles.invoiceButtonText}>开发票</Text>
-                </TouchableOpacity>
-              </View>
-            </>
-          )}
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#ff6b35" />
+          <Text style={styles.loadingText}>加载中...</Text>
         </View>
-      ))}
+      ) : completedOrders.length > 0 ? (
+        completedOrders.map((order) => (
+          <View key={order.id} style={styles.card}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.orderTitle}>{order.type}</Text>
+              <View style={styles.statusTag}>
+                <Text style={styles.statusText}>{order.status}</Text>
+              </View>
+            </View>
+            <Text style={styles.serviceText}>{order.service}</Text>
+            <Text style={styles.detailsText}>{order.details}</Text>
+            <View style={styles.cardFooter}>
+              <Text style={styles.amountLabel}>实付费用:</Text>
+              <Text style={styles.amountValue}>{order.amount}</Text>
+              <TouchableOpacity style={styles.invoiceButton} onPress={() => navigation.navigate('SetInvoice', { orderId: order.id })}>
+                <Text style={styles.invoiceButtonText}>开发票</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ))
+      ) : (
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyText}>暂无待开票订单</Text>
+        </View>
+      )}
     </ScrollView>
   )
 
   const renderIssuedInvoices = () => (
     <ScrollView style={styles.content}>
-      {issuedInvoices.map((invoice, index) => (
-        <View key={index} style={styles.card}>
-          <View style={styles.cardHeader}>
-            <Text style={styles.orderTitle}>{invoice.type}</Text>
-            <View style={styles.statusTag}>
-              <Text style={styles.statusText}>{invoice.status}</Text>
+      {issuedInvoices.length > 0 ? (
+        issuedInvoices.map((invoice) => (
+          <View key={invoice.id} style={styles.card}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.orderTitle}>{invoice.type}</Text>
+              <View style={styles.statusTag}>
+                <Text style={styles.statusText}>已开发票</Text>
+              </View>
+            </View>
+            <Text style={styles.serviceText}>{invoice.service}</Text>
+            <Text style={styles.detailsText}>{invoice.details}</Text>
+            <View style={styles.cardFooter}>
+              <Text style={styles.amountLabel}>实付费用:</Text>
+              <Text style={styles.amountValue}>{invoice.amount}</Text>
             </View>
           </View>
-          <Text style={styles.serviceText}>{invoice.service}</Text>
-          <Text style={styles.detailsText}>{invoice.details}</Text>
-          <View style={styles.cardFooter}>
-            <Text style={styles.amountLabel}>实付费用:</Text>
-            <Text style={styles.amountValue}>{invoice.amount}</Text>
-          </View>
+        ))
+      ) : (
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyText}>暂无已开票记录</Text>
         </View>
-      ))}
+      )}
     </ScrollView>
   )
 
@@ -334,5 +379,25 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: '600',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  loadingText: {
+    marginTop: 10,
+    color: '#666',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  emptyText: {
+    color: '#999',
+    fontSize: 16,
   },
 })
