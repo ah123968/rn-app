@@ -56,21 +56,165 @@ const DataStatistics: React.FC<Props> = ({ navigation }) => {
       setLoading(true);
       setError('');
 
-      // 获取认证Token
-      const token = await AsyncStorage.getItem('storeToken');
+      // 获取认证Token（与其他页面保持一致）
+      const token = await AsyncStorage.getItem('storeAdminToken');
       if (!token) {
         navigation.replace('StoreLogin');
         return;
       }
 
-      // 尝试从API加载统计数据
       try {
-        // 此处添加实际API请求
-        // 这里使用模拟数据
-        generateMockStatistics();
+        // 拉取订单数据（取较大分页，前端聚合）
+        const limit = 500;
+        const response = await fetch(`${API_BASE_URL}/api/store-admin/orders?limit=${limit}&page=1`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const data = await response.json();
+        if (!(data && data.code === 0 && data.data && Array.isArray(data.data.orders))) {
+          throw new Error(data?.message || '返回数据格式不正确');
+        }
+
+        const orders: any[] = data.data.orders;
+
+        // 统一获取订单时间（createTime 或 createdAt）
+        const getOrderDate = (o: any): Date => {
+          const ts = o.createTime || o.createdAt || o.payTime;
+          return ts ? new Date(ts) : new Date();
+        };
+
+        // 计算摘要
+        const processingSet = new Set(['toPickup','pickedUp','sorting','washing','drying','ironing','packaging','processing']);
+        let totalOrders = 0;
+        let pendingOrders = 0;      // 对齐“待处理” → paid/pending
+        let processingOrders = 0;   // 洗护中系列
+        let completedOrders = 0;
+        let cancelledOrders = 0;
+        let totalRevenue = 0;
+        let todayRevenue = 0;
+        let monthRevenue = 0;
+        let todayOrders = 0;
+        let monthOrders = 0;
+
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = now.getMonth();
+        const isSameDay = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+        const isSameMonth = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
+
+        for (const o of orders) {
+          totalOrders += 1;
+          const status: string = o.status || 'paid';
+          const price: number = Number(o.totalPrice || 0);
+          const d = getOrderDate(o);
+
+          if (status === 'pending' || status === 'paid') pendingOrders += 1;
+          else if (processingSet.has(status)) processingOrders += 1;
+          else if (status === 'completed') completedOrders += 1;
+          else if (status === 'cancelled') cancelledOrders += 1;
+
+          totalRevenue += price;
+          if (isSameDay(d, now)) {
+            todayRevenue += price;
+            todayOrders += 1;
+          }
+          if (isSameMonth(d, now)) {
+            monthRevenue += price;
+            monthOrders += 1;
+          }
+        }
+
+        setSummary({
+          totalOrders,
+          pendingOrders,
+          processingOrders,
+          completedOrders,
+          cancelledOrders,
+          totalRevenue,
+          todayRevenue,
+          monthRevenue,
+          todayOrders,
+          monthOrders
+        });
+
+        // 计算图表数据
+        if (timeRange === 'week') {
+          // 近7天（含今天），按自然日聚合
+          const dayLabels: string[] = [];
+          const dayValues: number[] = [];
+          for (let i = 6; i >= 0; i--) {
+            const d = new Date(now);
+            d.setDate(now.getDate() - i);
+            const label = `${d.getMonth() + 1}/${d.getDate()}`;
+            dayLabels.push(label);
+            const sum = orders.reduce((acc, o) => {
+              const od = getOrderDate(o);
+              return isSameDay(od, d) ? acc + Number(o.totalPrice || 0) : acc;
+            }, 0);
+            dayValues.push(Number(sum.toFixed(2)));
+          }
+          setRevenueData({ labels: dayLabels, values: dayValues });
+
+          const dayCountValues: number[] = [];
+          for (let i = 6; i >= 0; i--) {
+            const d = new Date(now);
+            d.setDate(now.getDate() - i);
+            const cnt = orders.reduce((acc, o) => {
+              const od = getOrderDate(o);
+              return isSameDay(od, d) ? acc + 1 : acc;
+            }, 0);
+            dayCountValues.push(cnt);
+          }
+          setOrderData({ labels: dayLabels, values: dayCountValues });
+        } else if (timeRange === 'month') {
+          // 近4周（按7天为一周）
+          const labels = ['第1周','第2周','第3周','第4周'];
+          const weekValues: number[] = [];
+          const weekCountValues: number[] = [];
+          for (let w = 3; w >= 0; w--) {
+            const end = new Date(now);
+            end.setDate(now.getDate() - (w * 7));
+            const start = new Date(end);
+            start.setDate(end.getDate() - 6);
+            const sum = orders.reduce((acc, o) => {
+              const od = getOrderDate(o);
+              return od >= start && od <= end ? acc + Number(o.totalPrice || 0) : acc;
+            }, 0);
+            const cnt = orders.reduce((acc, o) => {
+              const od = getOrderDate(o);
+              return od >= start && od <= end ? acc + 1 : acc;
+            }, 0);
+            weekValues.push(Number(sum.toFixed(2)));
+            weekCountValues.push(cnt);
+          }
+          setRevenueData({ labels, values: weekValues });
+          setOrderData({ labels, values: weekCountValues });
+        } else if (timeRange === 'year') {
+          // 当年12个月
+          const labels = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+          const monthValues = new Array(12).fill(0);
+          const monthCountValues = new Array(12).fill(0);
+          for (const o of orders) {
+            const d = getOrderDate(o);
+            if (d.getFullYear() === y) {
+              const idx = d.getMonth();
+              monthValues[idx] += Number(o.totalPrice || 0);
+              monthCountValues[idx] += 1;
+            }
+          }
+          setRevenueData({ labels, values: monthValues.map(v => Number(v.toFixed(2))) });
+          setOrderData({ labels, values: monthCountValues });
+        }
       } catch (fetchError) {
         console.error('获取统计数据失败:', fetchError);
-        // 使用模拟数据
+        // 使用模拟数据回退
         generateMockStatistics();
       }
     } catch (error) {
