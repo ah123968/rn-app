@@ -9,7 +9,8 @@ import {
   Alert,
   TextInput,
   Switch,
-  Modal
+  Modal,
+  ScrollView
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -17,6 +18,10 @@ import { RootStackParamList } from '../router/Router';
 
 // API配置
 const API_BASE_URL = 'http://192.168.43.51:3000'; // 修改为您后端的实际IP地址
+
+// 统一配色常量
+const COLOR_PRIMARY = '#007AFF';
+const COLOR_DANGER = '#FF3B30';
 
 type ServiceManagementScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'ServiceManagement'>;
 
@@ -174,8 +179,11 @@ const ServiceManagement: React.FC<Props> = ({ navigation }) => {
                   name: service.name || '未命名服务',
                   description: service.description || '无描述',
                   icon: service.icon,
-                  serviceType: service.serviceType || service.name === '干洗' ? 'dry' : 
-                               service.name === '水洗' ? 'wet' : 'other',
+                  serviceType: service.serviceType
+                    ? service.serviceType
+                    : (service.name === '干洗'
+                        ? 'dry'
+                        : (service.name === '水洗' ? 'wet' : 'other')),
                   categories: service.categories,
                   price: basePrice,
                   isUrgentAvailable: !!service.isUrgentAvailable,
@@ -908,187 +916,194 @@ const ServiceManagement: React.FC<Props> = ({ navigation }) => {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>
-              {isEditing ? '编辑服务' : '添加服务'}
-            </Text>
+            <ScrollView
+              style={styles.modalScroll}
+              contentContainerStyle={styles.modalScrollContent}
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled
+            >
+              <Text style={styles.modalTitle}>
+                {isEditing ? '编辑服务' : '添加服务'}
+              </Text>
 
-            <View style={styles.formGroup}>
-              <Text style={styles.label}>服务名称</Text>
-              <TextInput
-                style={styles.input}
-                value={name}
-                onChangeText={setName}
-                placeholder="输入服务名称"
-              />
-            </View>
-
-            <View style={styles.formGroup}>
-              <Text style={styles.label}>服务描述</Text>
-              <TextInput
-                style={[styles.input, styles.textArea]}
-                value={description}
-                onChangeText={setDescription}
-                placeholder="输入服务描述"
-                multiline
-                numberOfLines={3}
-              />
-            </View>
-
-            <View style={styles.formGroup}>
-              <Text style={styles.label}>服务类型</Text>
-              {renderServiceTypeOptions()}
-            </View>
-
-            <View style={styles.formGroup}>
-              <Text style={styles.label}>价格 (元/件)</Text>
-              <TextInput
-                style={styles.input}
-                value={price}
-                onChangeText={setPrice}
-                placeholder="输入价格"
-                keyboardType="numeric"
-              />
-              <Text style={styles.noteText}>注：如添加分类和具体服务项目，此价格将被忽略</Text>
-            </View>
-
-            {/* 分类和服务项目编辑区域 */}
-            <View style={styles.formGroup}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>服务分类</Text>
-                <TouchableOpacity 
-                  style={styles.addCategoryButton} 
-                  onPress={handleAddCategory}
-                >
-                  <Text style={styles.addButtonTextSmall}>添加分类</Text>
-                </TouchableOpacity>
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>服务名称</Text>
+                <TextInput
+                  style={styles.input}
+                  value={name}
+                  onChangeText={setName}
+                  placeholder="输入服务名称"
+                />
               </View>
 
-              {categories.length === 0 ? (
-                <View style={styles.emptyCategoriesContainer}>
-                  <Text style={styles.emptyCategoriesText}>暂无分类，点击"添加分类"按钮创建</Text>
-                </View>
-              ) : (
-                <View style={styles.categoriesList}>
-                  {categories.map((category, catIndex) => (
-                    <View key={`edit-cat-${catIndex}`} style={styles.categoryEditItem}>
-                      <View style={styles.categoryEditHeader}>
-                        <Text style={styles.categoryEditName}>{category.name}</Text>
-                        <View style={styles.categoryEditActions}>
-                          <TouchableOpacity
-                            style={[styles.smallActionButton, styles.smallEditButton]}
-                            onPress={() => handleEditCategory(category, catIndex)}
-                          >
-                            <Text style={styles.smallActionButtonText}>编辑</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={[styles.smallActionButton, styles.smallDeleteButton]}
-                            onPress={() => handleDeleteCategory(catIndex)}
-                          >
-                            <Text style={styles.smallActionButtonText}>删除</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={[styles.smallActionButton, styles.smallAddButton]}
-                            onPress={() => handleAddItem(catIndex)}
-                          >
-                            <Text style={styles.smallActionButtonText}>添加项目</Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>服务描述</Text>
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  value={description}
+                  onChangeText={setDescription}
+                  placeholder="输入服务描述"
+                  multiline
+                  numberOfLines={3}
+                />
+              </View>
 
-                      {/* 服务项目列表 */}
-                      {category.items.length === 0 ? (
-                        <Text style={styles.emptyItemsText}>暂无服务项目</Text>
-                      ) : (
-                        <View style={styles.itemsList}>
-                          {category.items.map((item, itemIndex) => (
-                            <View key={`edit-item-${catIndex}-${itemIndex}`} style={styles.itemEditItem}>
-                              <View style={styles.itemEditRow}>
-                                <View style={styles.itemEditInfo}>
-                                  <Text style={styles.itemEditName}>{item.name}</Text>
-                                  <Text style={styles.itemEditPrice}>
-                                    ¥{item.price.toFixed(2)}/{item.unit || '件'}
-                                    {item.processingTime && ` · 约${item.processingTime}小时`}
-                                  </Text>
-                                  {item.fabricTypes && item.fabricTypes.length > 0 && (
-                                    <Text style={styles.itemEditFabric}>
-                                      适用面料: {item.fabricTypes.join(', ')}
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>服务类型</Text>
+                {renderServiceTypeOptions()}
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>价格 (元/件)</Text>
+                <TextInput
+                  style={styles.input}
+                  value={price}
+                  onChangeText={setPrice}
+                  placeholder="输入价格"
+                  keyboardType="numeric"
+                />
+                <Text style={styles.noteText}>注：如添加分类和具体服务项目，此价格将被忽略</Text>
+              </View>
+
+              {/* 分类和服务项目编辑区域 */}
+              <View style={styles.formGroup}>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>服务分类</Text>
+                  <TouchableOpacity 
+                    style={styles.addCategoryButton} 
+                    onPress={handleAddCategory}
+                  >
+                    <Text style={styles.addButtonTextSmall}>添加分类</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {categories.length === 0 ? (
+                  <View style={styles.emptyCategoriesContainer}>
+                    <Text style={styles.emptyCategoriesText}>暂无分类，点击"添加分类"按钮创建</Text>
+                  </View>
+                ) : (
+                  <View style={styles.categoriesList}>
+                    {categories.map((category, catIndex) => (
+                      <View key={`edit-cat-${catIndex}`} style={styles.categoryEditItem}>
+                        <View style={styles.categoryEditHeader}>
+                          <Text style={styles.categoryEditName}>{category.name}</Text>
+                          <View style={styles.categoryEditActions}>
+                            <TouchableOpacity
+                              style={[styles.smallActionButton, styles.smallEditButton]}
+                              onPress={() => handleEditCategory(category, catIndex)}
+                            >
+                              <Text style={styles.smallActionButtonText}>编辑</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[styles.smallActionButton, styles.smallDeleteButton]}
+                              onPress={() => handleDeleteCategory(catIndex)}
+                            >
+                              <Text style={styles.smallActionButtonText}>删除</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[styles.smallActionButton, styles.smallAddButton]}
+                              onPress={() => handleAddItem(catIndex)}
+                            >
+                              <Text style={styles.smallActionButtonText}>添加项目</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+
+                        {/* 服务项目列表 */}
+                        {category.items.length === 0 ? (
+                          <Text style={styles.emptyItemsText}>暂无服务项目</Text>
+                        ) : (
+                          <View style={styles.itemsList}>
+                            {category.items.map((item, itemIndex) => (
+                              <View key={`edit-item-${catIndex}-${itemIndex}`} style={styles.itemEditItem}>
+                                <View style={styles.itemEditRow}>
+                                  <View style={styles.itemEditInfo}>
+                                    <Text style={styles.itemEditName}>{item.name}</Text>
+                                    <Text style={styles.itemEditPrice}>
+                                      ¥{item.price.toFixed(2)}/{item.unit || '件'}
+                                      {item.processingTime && ` · 约${item.processingTime}小时`}
                                     </Text>
-                                  )}
-                                </View>
-                                <View style={styles.itemEditActions}>
-                                  <TouchableOpacity
-                                    style={[styles.smallActionButton, styles.smallEditButton]}
-                                    onPress={() => handleEditItem(item, catIndex, itemIndex)}
-                                  >
-                                    <Text style={styles.smallActionButtonText}>编辑</Text>
-                                  </TouchableOpacity>
-                                  <TouchableOpacity
-                                    style={[styles.smallActionButton, styles.smallDeleteButton]}
-                                    onPress={() => handleDeleteItem(catIndex, itemIndex)}
-                                  >
-                                    <Text style={styles.smallActionButtonText}>删除</Text>
-                                  </TouchableOpacity>
+                                    {item.fabricTypes && item.fabricTypes.length > 0 && (
+                                      <Text style={styles.itemEditFabric}>
+                                        适用面料: {item.fabricTypes.join(', ')}
+                                      </Text>
+                                    )}
+                                  </View>
+                                  <View style={styles.itemEditActions}>
+                                    <TouchableOpacity
+                                      style={[styles.smallActionButton, styles.smallEditButton]}
+                                      onPress={() => handleEditItem(item, catIndex, itemIndex)}
+                                    >
+                                      <Text style={styles.smallActionButtonText}>编辑</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                      style={[styles.smallActionButton, styles.smallDeleteButton]}
+                                      onPress={() => handleDeleteItem(catIndex, itemIndex)}
+                                    >
+                                      <Text style={styles.smallActionButtonText}>删除</Text>
+                                    </TouchableOpacity>
+                                  </View>
                                 </View>
                               </View>
-                            </View>
-                          ))}
-                        </View>
-                      )}
-                    </View>
-                  ))}
+                            ))}
+                          </View>
+                        )}
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.formGroup}>
+                <View style={styles.switchRow}>
+                  <Text style={styles.label}>提供加急服务</Text>
+                  <Switch
+                    value={isUrgentAvailable}
+                    onValueChange={setIsUrgentAvailable}
+                    trackColor={{ false: '#767577', true: '#81b0ff' }}
+                    thumbColor={isUrgentAvailable ? '#007AFF' : '#f4f3f4'}
+                  />
                 </View>
+              </View>
+
+              {isUrgentAvailable && (
+                <>
+                  <View style={styles.formGroup}>
+                    <Text style={styles.label}>加急费用 (元)</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={urgentFee}
+                      onChangeText={setUrgentFee}
+                      placeholder="输入加急费用"
+                      keyboardType="numeric"
+                    />
+                  </View>
+
+                  <View style={styles.formGroup}>
+                    <Text style={styles.label}>加急处理时间 (小时)</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={urgentProcessingTime}
+                      onChangeText={setUrgentProcessingTime}
+                      placeholder="输入处理时间"
+                      keyboardType="numeric"
+                    />
+                  </View>
+                </>
               )}
-            </View>
 
-            <View style={styles.formGroup}>
-              <View style={styles.switchRow}>
-                <Text style={styles.label}>提供加急服务</Text>
-                <Switch
-                  value={isUrgentAvailable}
-                  onValueChange={setIsUrgentAvailable}
-                  trackColor={{ false: '#767577', true: '#81b0ff' }}
-                  thumbColor={isUrgentAvailable ? '#007AFF' : '#f4f3f4'}
-                />
-              </View>
-            </View>
-
-            {isUrgentAvailable && (
-              <>
-                <View style={styles.formGroup}>
-                  <Text style={styles.label}>加急费用 (元)</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={urgentFee}
-                    onChangeText={setUrgentFee}
-                    placeholder="输入加急费用"
-                    keyboardType="numeric"
+              <View style={styles.formGroup}>
+                <View style={styles.switchRow}>
+                  <Text style={styles.label}>是否启用</Text>
+                  <Switch
+                    value={isActive}
+                    onValueChange={setIsActive}
+                    trackColor={{ false: '#767577', true: '#81b0ff' }}
+                    thumbColor={isActive ? '#007AFF' : '#f4f3f4'}
                   />
                 </View>
-
-                <View style={styles.formGroup}>
-                  <Text style={styles.label}>加急处理时间 (小时)</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={urgentProcessingTime}
-                    onChangeText={setUrgentProcessingTime}
-                    placeholder="输入处理时间"
-                    keyboardType="numeric"
-                  />
-                </View>
-              </>
-            )}
-
-            <View style={styles.formGroup}>
-              <View style={styles.switchRow}>
-                <Text style={styles.label}>是否启用</Text>
-                <Switch
-                  value={isActive}
-                  onValueChange={setIsActive}
-                  trackColor={{ false: '#767577', true: '#81b0ff' }}
-                  thumbColor={isActive ? '#007AFF' : '#f4f3f4'}
-                />
               </View>
-            </View>
+            </ScrollView>
 
             <View style={styles.modalButtons}>
               <TouchableOpacity
@@ -1260,7 +1275,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#007AFF',
+    backgroundColor: COLOR_PRIMARY,
     paddingHorizontal: 15,
     paddingTop: 15,
     paddingBottom: 15
@@ -1305,7 +1320,7 @@ const styles = StyleSheet.create({
     marginBottom: 20
   },
   emptyButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: COLOR_PRIMARY,
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 5
@@ -1411,10 +1426,10 @@ const styles = StyleSheet.create({
     marginLeft: 10
   },
   editButton: {
-    backgroundColor: '#2196F3'
+    backgroundColor: COLOR_PRIMARY
   },
   deleteButton: {
-    backgroundColor: '#F44336'
+    backgroundColor: COLOR_DANGER
   },
   actionButtonText: {
     color: 'white',
@@ -1433,6 +1448,12 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 20,
     maxHeight: '80%'
+  },
+  modalScroll: {
+    maxHeight: '100%'
+  },
+  modalScrollContent: {
+    paddingBottom: 10
   },
   modalTitle: {
     fontSize: 18,
@@ -1473,14 +1494,14 @@ const styles = StyleSheet.create({
     marginHorizontal: 5
   },
   radioButtonSelected: {
-    borderColor: '#007AFF',
+    borderColor: COLOR_PRIMARY,
     backgroundColor: '#E3F2FD'
   },
   radioLabel: {
     color: '#666'
   },
   radioLabelSelected: {
-    color: '#007AFF',
+    color: COLOR_PRIMARY,
     fontWeight: '500'
   },
   switchRow: {
@@ -1509,7 +1530,7 @@ const styles = StyleSheet.create({
     color: '#666'
   },
   saveButton: {
-    backgroundColor: '#007AFF'
+    backgroundColor: COLOR_PRIMARY
   },
   saveButtonText: {
     color: 'white',
@@ -1599,7 +1620,7 @@ const styles = StyleSheet.create({
   addCategoryButton: {
     paddingHorizontal: 10,
     paddingVertical: 5,
-    backgroundColor: '#007AFF',
+    backgroundColor: COLOR_PRIMARY,
     borderRadius: 5
   },
   addButtonTextSmall: {
@@ -1655,13 +1676,13 @@ const styles = StyleSheet.create({
     marginLeft: 5
   },
   smallEditButton: {
-    backgroundColor: '#2196F3'
+    backgroundColor: COLOR_PRIMARY
   },
   smallDeleteButton: {
-    backgroundColor: '#F44336'
+    backgroundColor: COLOR_DANGER
   },
   smallAddButton: {
-    backgroundColor: '#4CAF50'
+    backgroundColor: COLOR_PRIMARY
   },
   smallActionButtonText: {
     color: 'white',

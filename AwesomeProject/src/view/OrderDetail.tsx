@@ -6,7 +6,10 @@ import {
   TouchableOpacity,
   ScrollView,
   ActivityIndicator,
-  Alert
+  Alert,
+  Modal,
+  TextInput,
+  Image
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
@@ -46,14 +49,66 @@ interface OrderDetail {
   pickupCode: string;
 }
 
-const API_BASE_URL = 'http://192.168.43.51:3000'; // 使用您实际的后端服务器IP
+const API_BASE_CANDIDATES = [
+  'http://192.168.43.51:3000', // 局域网IP
+  'http://10.0.2.2:3000',      // Android 模拟器访问宿主机
+  'http://127.0.0.1:3000'      // 同机直连
+];
 
 const OrderDetail: React.FC<Props> = ({ navigation, route }) => {
   const { orderId } = route.params;
   const [order, setOrder] = useState<OrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [token, setToken] = useState<string | null>(null);
+  const [apiBase, setApiBase] = useState<string>(API_BASE_CANDIDATES[0]);
+  const [pickupModalVisible, setPickupModalVisible] = useState(false);
+  const [pickupInput, setPickupInput] = useState('');
+  const [plannedNext, setPlannedNext] = useState<string | null>(null);
+  const [plannedCurrent, setPlannedCurrent] = useState<string | null>(null);
   
+  // 多源二维码服务，自动回退
+  const getQrCandidates = (code: string) => [
+    `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(code || '')}`,
+    `https://quickchart.io/qr?text=${encodeURIComponent(code || '')}&size=200`,
+  ];
+  const [qrIndex, setQrIndex] = useState(0);
+  const [qrError, setQrError] = useState<string | null>(null);
+
+  // 长按二维码：识别并预填取件码（仅在 toPickup 状态可用）
+  const handleQrLongPress = async () => {
+    if (!order) return;
+    try {
+      setLoading(true);
+      if (!token) {
+        navigation.navigate('StoreLogin');
+        return;
+      }
+      // 获取最新状态
+      const { resp: orderResponse } = await fetchWithFallback(`/api/store-admin/orders?limit=50`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token || ''}`
+        }
+      });
+      const orderData = await orderResponse.json();
+      const orderDetail = orderData.data?.orders?.find((o: any) => o.orderId === order.id);
+      const backendStatus = orderDetail?.status;
+      if (backendStatus === 'toPickup') {
+        setPlannedCurrent('toPickup');
+        setPlannedNext('pickedUp');
+        setPickupInput(order.pickupCode);
+        setPickupModalVisible(true);
+      } else {
+        Alert.alert('提示', `当前状态为 ${backendStatus || '未知'}，不可直接取衣`);
+      }
+    } catch (e) {
+      Alert.alert('识别失败', e instanceof Error ? e.message : '网络错误');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // 获取token
   useEffect(() => {
     const getToken = async () => {
@@ -70,6 +125,22 @@ const OrderDetail: React.FC<Props> = ({ navigation, route }) => {
     }
   }, [orderId, token]);
 
+  // 带候选基址的请求封装
+  const fetchWithFallback = async (path: string, init: RequestInit): Promise<{ resp: Response, base: string }> => {
+    let lastErr: any = null;
+    for (const base of [apiBase, ...API_BASE_CANDIDATES.filter(b => b !== apiBase)]) {
+      try {
+        const resp = await fetch(`${base}${path}`, init);
+        // 返回任何有效响应（即使是非200，方便上层处理）
+        if (resp) return { resp, base };
+      } catch (e) {
+        lastErr = e;
+        console.log('请求失败，尝试下一个基址:', base, e instanceof Error ? e.message : String(e));
+      }
+    }
+    throw lastErr || new Error('网络请求失败');
+  };
+
   const loadOrderDetail = async () => {
     setLoading(true);
     try {
@@ -79,14 +150,18 @@ const OrderDetail: React.FC<Props> = ({ navigation, route }) => {
         return;
       }
 
-      // 请求后端API获取订单列表
-      const response = await fetch(`${API_BASE_URL}/api/store-admin/orders?limit=50`, {
+      // 请求后端API获取订单列表（带候选基址）
+      const { resp: response, base } = await fetchWithFallback(`/api/store-admin/orders?limit=50`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         }
       });
+      if (base !== apiBase) {
+        console.log('切换API基址为:', base);
+        setApiBase(base);
+      }
 
       console.log('获取订单详情API状态:', response.status);
 
@@ -150,24 +225,155 @@ const OrderDetail: React.FC<Props> = ({ navigation, route }) => {
       setLoading(false);
     }
   };
+ 
+  // 凭取件码取衣（paid -> processing），调用后端专用接口
+  const handleTakePickup = async () => {
+    if (!order) return;
+    try {
+      setLoading(true);
+      if (!token) {
+        navigation.navigate('StoreLogin');
+        return;
+      }
+      // 先读取最新状态
+      const { resp: listResp, base } = await fetchWithFallback(`/api/store-admin/orders?limit=50`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (base !== apiBase) setApiBase(base);
+      if (!listResp.ok) {
+        throw new Error(`获取订单状态失败: ${listResp.status}`);
+      }
+      const listData = await listResp.json();
+      const latest = listData?.data?.orders?.find((o: any) => o.orderId === order.id);
+      let current = latest?.status || 'paid';
+      console.log('取衣-当前后端状态:', current);
 
-  // 更新订单状态
+      const processingSet = new Set(['toPickup','pickedUp','sorting','washing','drying','ironing','packaging']);
+      // 目标：初始阶段到 toPickup；处理中阶段到 ready；ready 到 completed
+      let goal: string;
+      if (current === 'pending' || current === 'paid') goal = 'toPickup';
+      else if (processingSet.has(current)) goal = 'ready';
+      else if (current === 'ready') goal = 'completed';
+      else if (current === 'completed') {
+        Alert.alert('提示', '订单已完成');
+        return;
+      } else {
+        Alert.alert('提示', `当前状态为 ${current}，无法执行该操作`);
+        return;
+      }
+
+      // 合法的下一步映射
+      const nextMap: Record<string, string | undefined> = {
+        pending: 'paid',
+        paid: 'toPickup',
+        toPickup: 'pickedUp',
+        pickedUp: 'sorting',
+        sorting: 'washing',
+        washing: 'drying',
+        drying: 'ironing',
+        ironing: 'packaging',
+        packaging: 'ready',
+        ready: 'completed'
+      };
+
+      // 计算完整路径
+      const steps: string[] = [];
+      let cursor: string | undefined = current;
+      while (cursor && cursor !== goal) {
+        const next = nextMap[cursor];
+        if (!next) break;
+        steps.push(next);
+        cursor = next;
+      }
+
+      if (steps.length === 0) {
+        Alert.alert('提示', '无需变更');
+        await loadOrderDetail();
+        return;
+      }
+
+      // 逐步执行每个合法状态更新
+      for (const next of steps) {
+        const { resp } = await fetchWithFallback(`/api/store-admin/order/${order.id}/status`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ status: next, _allowPendingToProcessing: true, currentStatus: current })
+        });
+        const txt = await resp.text();
+        console.log('取衣状态更新响应:', current, '->', next, resp.status, txt);
+        const data = (() => { try { return JSON.parse(txt); } catch { return null; } })();
+        if (!(resp.ok && data?.code === 0)) {
+          throw new Error(data?.message || `服务器错误: ${resp.status}`);
+        }
+        current = next;
+      }
+
+      Alert.alert('成功', `状态已更新至 ${current}`);
+      await loadOrderDetail();
+    } catch (e) {
+      console.error('取衣失败:', e);
+      Alert.alert('取件失败', e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const performStatusUpdate = async (backendStatus: string, nextBackendStatus: string) => {
+    const { resp: response } = await fetchWithFallback(`/api/store-admin/order/${order!.id}/status`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token || ''}`
+      },
+      body: JSON.stringify({
+        status: nextBackendStatus,
+        _allowPendingToProcessing: true,
+        currentStatus: backendStatus
+      })
+    });
+    const responseText = await response.text();
+    console.log(`API响应状态: ${response.status}`);
+    console.log(`API响应内容: ${responseText}`);
+    let responseData: any;
+    try { responseData = JSON.parse(responseText); } catch {}
+    if (response.ok && responseData && responseData.code === 0) {
+      Alert.alert('成功', `状态已更新至 ${nextBackendStatus}`);
+      setOrder(prev => prev ? { ...prev, status: mapStatusToFrontend(nextBackendStatus) } : null);
+      setTimeout(() => { loadOrderDetail(); }, 300);
+    } else {
+      const errorMsg = responseData?.message || `服务器错误: ${response.status}`;
+      console.error('更新状态失败:', errorMsg);
+      Alert.alert('更新失败', errorMsg);
+    }
+  };
+
+  // 更新订单状态（单步推进到下一个合法状态）
   const handleUpdateStatus = async () => {
     if (!order) return;
 
     try {
-      // 显示加载提示
       setLoading(true);
-      console.log('开始更新订单状态...');
+      if (!token) {
+        navigation.navigate('StoreLogin');
+        return;
+      }
 
-      // 直接获取订单详情而不是列表
-      const orderResponse = await fetch(`${API_BASE_URL}/api/store-admin/orders?limit=50`, {
+      // 获取最新状态
+      const { resp: orderResponse, base } = await fetchWithFallback(`/api/store-admin/orders?limit=50`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token || ''}`
         }
       });
+      if (base !== apiBase) setApiBase(base);
 
       if (!orderResponse.ok) {
         throw new Error(`获取订单详情失败: ${orderResponse.status}`);
@@ -175,76 +381,47 @@ const OrderDetail: React.FC<Props> = ({ navigation, route }) => {
 
       const orderData = await orderResponse.json();
       const orderDetail = orderData.data?.orders?.find((o: any) => o.orderId === order.id);
-      
       if (!orderDetail) {
         throw new Error(`找不到订单ID: ${order.id}`);
       }
 
       const backendStatus = orderDetail.status;
       console.log(`当前订单状态: ${backendStatus}`);
-      
-      // 确定下一个状态
-      let nextStatus;
-      let nextBackendStatus;
-      
-      // 直接处理各种可能的状态
-      if (backendStatus === 'pending' || backendStatus === 'paid') {
-        nextBackendStatus = 'processing';
-        nextStatus = 'processing';
-      } else if (backendStatus === 'processing') {
-        nextBackendStatus = 'ready';
-        nextStatus = 'ready';
-      } else if (backendStatus === 'ready') {
-        nextBackendStatus = 'completed';
-        nextStatus = 'completed';
-      } else {
-        Alert.alert('错误', `无法更新当前状态: ${backendStatus}`);
+
+      // 定义单步“下一步”映射（优先路径）
+      const nextMap: Record<string, string | undefined> = {
+        pending: 'paid',
+        paid: 'toPickup',
+        toPickup: 'pickedUp',
+        pickedUp: 'sorting',
+        sorting: 'washing',
+        washing: 'drying',
+        drying: 'ironing',
+        ironing: 'packaging',
+        packaging: 'ready',
+        ready: 'completed',
+        delivering: 'completed',
+        // 兼容旧聚合态
+        processing: 'ready'
+      };
+
+      const nextBackendStatus = nextMap[backendStatus];
+      if (!nextBackendStatus) {
+        Alert.alert('提示', `当前状态为 ${backendStatus}，无法推进`);
         setLoading(false);
         return;
       }
-      
+
       console.log(`准备更新状态: ${backendStatus} -> ${nextBackendStatus}`);
-      
-      // 调用API更新状态
-      const response = await fetch(`${API_BASE_URL}/api/store-admin/order/${order.id}/status`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token || ''}`
-        },
-        body: JSON.stringify({
-          status: nextBackendStatus,
-          _allowPendingToProcessing: true,
-          currentStatus: backendStatus
-        })
-      });
-      
-      console.log(`API响应状态: ${response.status}`);
-      const responseText = await response.text();
-      console.log(`API响应内容: ${responseText}`);
-      
-      let responseData;
-      try {
-        responseData = JSON.parse(responseText);
-      } catch (e) {
-        console.error('解析响应失败:', e);
-      }
-      
-      if (response.ok && responseData && responseData.code === 0) {
-        // 更新成功
-        Alert.alert('成功', '订单状态已更新');
-        
-        // 更新本地状态
-        setOrder(prev => prev ? {...prev, status: nextStatus} : null);
-        
-        // 延迟重新加载详情
-        setTimeout(() => {
-          loadOrderDetail();
-        }, 500);
+
+      // 只有从 toPickup 推进到 pickedUp 需要输入取件码
+      if (backendStatus === 'toPickup' && nextBackendStatus === 'pickedUp') {
+        setPlannedCurrent(backendStatus);
+        setPlannedNext(nextBackendStatus);
+        setPickupInput('');
+        setPickupModalVisible(true);
       } else {
-        const errorMsg = responseData?.message || `服务器错误: ${response.status}`;
-        console.error('更新状态失败:', errorMsg);
-        Alert.alert('更新失败', errorMsg);
+        await performStatusUpdate(backendStatus, nextBackendStatus);
       }
     } catch (error) {
       console.error('更新状态出错:', error);
@@ -284,11 +461,19 @@ const OrderDetail: React.FC<Props> = ({ navigation, route }) => {
   const mapStatusToFrontend = (backendStatus: string): string => {
     switch (backendStatus) {
       case 'paid': return 'paid';
+      case 'toPickup': return 'toPickup';
       case 'processing': return 'processing';
       case 'ready': return 'ready';
       case 'completed': return 'completed';
-      case 'pending': return 'paid'; // 将pending视为paid
-      case 'cancelled': return 'completed'; // 将cancelled视为completed
+      case 'pending': return 'paid';
+      case 'cancelled': return 'completed';
+      case 'pickedUp': return 'processing';
+      case 'sorting': return 'processing';
+      case 'washing': return 'processing';
+      case 'drying': return 'processing';
+      case 'ironing': return 'processing';
+      case 'packaging': return 'processing';
+      case 'delivering': return 'ready';
       default: return backendStatus;
     }
   };
@@ -296,6 +481,7 @@ const OrderDetail: React.FC<Props> = ({ navigation, route }) => {
   const mapStatusToBackend = (frontendStatus: string): string => {
     switch (frontendStatus) {
       case 'paid': return 'paid';
+      case 'toPickup': return 'toPickup';
       case 'processing': return 'processing';
       case 'ready': return 'ready';
       case 'completed': return 'completed';
@@ -306,6 +492,7 @@ const OrderDetail: React.FC<Props> = ({ navigation, route }) => {
   const getStatusText = (status: string) => {
     switch (status) {
       case 'paid': return '待处理';
+      case 'toPickup': return '待取衣';
       case 'processing': return '处理中';
       case 'ready': return '待取件';
       case 'completed': return '已完成';
@@ -316,6 +503,7 @@ const OrderDetail: React.FC<Props> = ({ navigation, route }) => {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'paid': return '#FF9800';
+      case 'toPickup': return '#FFC107';
       case 'processing': return '#2196F3';
       case 'ready': return '#4CAF50';
       case 'completed': return '#757575';
@@ -370,6 +558,30 @@ const OrderDetail: React.FC<Props> = ({ navigation, route }) => {
             <Text style={styles.orderTime}>支付时间: {order.payTime}</Text>
           )}
           <Text style={styles.orderTime}>取件码: {order.pickupCode}</Text>
+          {!!order.pickupCode && (
+            <View style={styles.qrContainer}>
+              {!qrError ? (
+                <TouchableOpacity activeOpacity={0.9} onLongPress={handleQrLongPress}>
+                  <Image
+                    source={{ uri: getQrCandidates(order.pickupCode)[qrIndex] }}
+                    style={styles.qrImage}
+                    resizeMode="contain"
+                    onError={() => {
+                      // 切换到下一个二维码源
+                      if (qrIndex + 1 < getQrCandidates(order.pickupCode).length) {
+                        setQrIndex(qrIndex + 1);
+                      } else {
+                        setQrError('二维码加载失败，请检查网络');
+                      }
+                    }}
+                  />
+                </TouchableOpacity>
+              ) : (
+                <Text style={styles.qrError}>{qrError}</Text>
+              )}
+              <Text style={styles.qrHint}>请扫描二维码核验取件码（长按二维码可自动识别/填充）</Text>
+            </View>
+          )}
         </View>
 
         <View style={styles.sectionContainer}>
@@ -426,24 +638,56 @@ const OrderDetail: React.FC<Props> = ({ navigation, route }) => {
           </View>
         ) : null}
 
+        {/* 操作区域：单步推进 */}
         {order.status !== 'completed' && (
-          <View style={styles.actionContainer}>
-            <TouchableOpacity 
-              style={[
-                styles.actionButton,
-                { backgroundColor: getStatusColor(order.status) }
-              ]}
-              onPress={handleUpdateStatus}
-            >
-              <Text style={styles.actionText}>
-                {order.status === 'paid' ? '接单处理' : 
-                order.status === 'processing' ? '完成处理' : 
-                order.status === 'ready' ? '确认取件' : '打印订单'}
-              </Text>
+          <View style={styles.sectionContainer}>
+            <TouchableOpacity style={styles.updateButton} onPress={handleUpdateStatus}>
+              <Text style={styles.updateButtonText}>推进下一步</Text>
             </TouchableOpacity>
           </View>
         )}
+       
       </ScrollView>
+
+      {/* 取件码输入弹窗（仅 toPickup -> pickedUp） */}
+      <Modal visible={pickupModalVisible} transparent animationType="fade" onRequestClose={() => setPickupModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>输入取件码</Text>
+            <Text style={styles.modalHint}>请核对客户提供的取件码</Text>
+            <TextInput
+              value={pickupInput}
+              onChangeText={setPickupInput}
+              placeholder="请输入取件码"
+              style={styles.modalInput}
+              autoCapitalize="characters"
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.modalBtn} onPress={() => setPickupModalVisible(false)}>
+                <Text style={styles.modalBtnText}>取消</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnPrimary]}
+                onPress={async () => {
+                  const code = (pickupInput || '').trim().toUpperCase();
+                  const expect = (order?.pickupCode || '').trim().toUpperCase();
+                  if (!code || code !== expect) {
+                    Alert.alert('错误', '取件码不正确');
+                    return;
+                  }
+                  setPickupModalVisible(false);
+                  if (plannedCurrent && plannedNext) {
+                    setLoading(true);
+                    try { await performStatusUpdate(plannedCurrent, plannedNext); } finally { setLoading(false); }
+                  }
+                }}
+              >
+                <Text style={[styles.modalBtnText, styles.modalBtnPrimaryText]}>确认</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -639,6 +883,99 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: '500'
+  },
+  updateButton: {
+    width: '100%',
+    height: 45,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#007AFF',
+    marginTop: 10
+  },
+  updateButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '500'
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  modalCard: {
+    width: '82%',
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 20
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 8
+  },
+  modalHint: {
+    color: '#666',
+    marginBottom: 10
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    height: 44,
+    marginBottom: 14
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end'
+  },
+  modalBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+    backgroundColor: '#eee',
+    marginLeft: 10
+  },
+  modalBtnText: {
+    color: '#333',
+    fontSize: 15
+  },
+  modalBtnPrimary: {
+    backgroundColor: '#007AFF'
+  },
+  modalBtnPrimaryText: {
+    color: '#fff'
+  },
+  qrContainer: {
+    alignItems: 'center',
+    marginTop: 10
+  },
+  qrImage: {
+    width: 140,
+    height: 140,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 4,
+    backgroundColor: '#fff'
+  },
+  qrHint: {
+    marginTop: 6,
+    fontSize: 12,
+    color: '#666'
+  },
+  qrError: {
+    width: 140,
+    height: 140,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 4,
+    textAlign: 'center',
+    textAlignVertical: 'center',
+    color: '#d00',
+    fontSize: 12,
+    paddingHorizontal: 6
   }
 });
 
